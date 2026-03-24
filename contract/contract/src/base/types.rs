@@ -264,7 +264,6 @@ pub enum StorageKey {
     EmergencyWithdrawal,
     CrowdfundingToken,
     CreationFee,
-    PlatformFeeBps,
     VerifiedCause(Address),
     PlatformFees,
     GlobalTotalRaised,
