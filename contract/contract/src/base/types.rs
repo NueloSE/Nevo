@@ -155,7 +155,7 @@ pub struct EventDetails {
 /// Represents the type of a ticket.
 /// Standard is the default type.
 #[contracttype]
-#[derive(Clone, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[repr(u32)]
 pub enum TicketType {
     /// Standard ticket for general access.
