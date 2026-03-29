@@ -347,10 +347,10 @@ pub enum StorageKey {
     EventPlatformFees(u64),
     // Track if someone bought a ticket
     UserTicket(u64, Address),
-    // Event details keyed by event id
-    Event(BytesN<32>),
     // Per-event metrics (tickets sold, etc.)
     EventMetrics(BytesN<32>),
+    // Marks that an event pool's funds have been fully withdrawn
+    EventDrained(u64),
 }
 
 #[cfg(test)]

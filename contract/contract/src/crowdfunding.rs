@@ -1885,6 +1885,48 @@ impl CrowdfundingTrait for CrowdfundingContract {
         Ok(())
     }
 
+    fn withdraw_event_pool(env: Env, pool_id: u64, to: Address) -> Result<(), CrowdfundingError> {
+        // Pool must exist
+        if !env.storage().instance().has(&StorageKey::Pool(pool_id)) {
+            return Err(CrowdfundingError::PoolNotFound);
+        }
+
+        // Prevent double withdrawal
+        let drained_key = StorageKey::EventDrained(pool_id);
+        if env
+            .storage()
+            .instance()
+            .get::<_, bool>(&drained_key)
+            .unwrap_or(false)
+        {
+            return Err(CrowdfundingError::EventAlreadyDrained);
+        }
+
+        let event_pool_key = StorageKey::EventPool(pool_id);
+        let amount: i128 = env.storage().instance().get(&event_pool_key).unwrap_or(0);
+
+        if amount <= 0 {
+            return Err(CrowdfundingError::InsufficientFees);
+        }
+
+        // Mark as drained BEFORE transfer (CEI pattern)
+        env.storage().instance().set(&drained_key, &true);
+
+        let token_address: Address = env
+            .storage()
+            .instance()
+            .get(&StorageKey::CrowdfundingToken)
+            .ok_or(CrowdfundingError::NotInitialized)?;
+
+        use soroban_sdk::token;
+        let token_client = token::Client::new(&env, &token_address);
+        token_client.transfer(&env.current_contract_address(), &to, &amount);
+
+        env.storage().instance().set(&event_pool_key, &0i128);
+
+        Ok(())
+    }
+
     fn set_emergency_contact(env: Env, contact: Address) -> Result<(), CrowdfundingError> {
         let admin: Address = env
             .storage()

@@ -84,6 +84,7 @@ use soroban_sdk::{
     Address, BytesN, Env, IntoVal,
 };
 
+use crate::base::errors::CrowdfundingError;
 use crate::crowdfunding::{CrowdfundingContract, CrowdfundingContractClient};
 
 // Import the compiled WASM of this same contract to use as the "new" version

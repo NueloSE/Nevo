@@ -188,6 +188,10 @@ pub trait CrowdfundingTrait {
         amount: i128,
     ) -> Result<(), CrowdfundingError>;
 
+    /// Withdraw all accumulated ticket-sale proceeds for a pool to `to`.
+    /// Marks the pool as drained so the funds cannot be withdrawn a second time.
+    fn withdraw_event_pool(env: Env, pool_id: u64, to: Address) -> Result<(), CrowdfundingError>;
+
     fn set_emergency_contact(env: Env, contact: Address) -> Result<(), CrowdfundingError>;
 
     fn get_emergency_contact(env: Env) -> Result<Address, CrowdfundingError>;
