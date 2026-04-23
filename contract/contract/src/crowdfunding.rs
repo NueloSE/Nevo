@@ -946,6 +946,31 @@ impl CrowdfundingTrait for CrowdfundingContract {
         // Update ID counter
         env.storage().instance().set(&next_id_key, &new_next_id);
 
+        // ── Token deposit: transfer target_amount from sponsor to contract ──
+        // Check sponsor balance before attempting transfer so we revert cleanly.
+        use soroban_sdk::token;
+        let token_client = token::Client::new(&env, &config.token_address);
+        let sponsor_balance = token_client.balance(&creator);
+        if sponsor_balance < config.target_amount {
+            return Err(CrowdfundingError::InsufficientSponsorBalance);
+        }
+        token_client.transfer(&creator, &env.current_contract_address(), &config.target_amount);
+
+        // Record the locked balance for this pool
+        env.storage()
+            .instance()
+            .set(&StorageKey::PoolBalance(pool_id), &config.target_amount);
+
+        // Reflect the deposit in pool metrics so total_raised starts at target_amount
+        let mut metrics: PoolMetrics = env
+            .storage()
+            .instance()
+            .get(&metrics_key)
+            .unwrap_or_default();
+        metrics.total_raised = config.target_amount;
+        env.storage().instance().set(&metrics_key, &metrics);
+        // ────────────────────────────────────────────────────────────────────
+
         // Emit event
         // Calculate deadline from creation time and duration for the event
         let deadline = config.created_at + config.duration;
@@ -1110,6 +1135,17 @@ impl CrowdfundingTrait for CrowdfundingContract {
     fn get_pool(env: Env, pool_id: u64) -> Option<PoolConfig> {
         let pool_key = StorageKey::Pool(pool_id);
         env.storage().instance().get(&pool_key)
+    }
+
+    fn get_pool_balance(env: Env, pool_id: u64) -> Result<i128, CrowdfundingError> {
+        if !env.storage().instance().has(&StorageKey::Pool(pool_id)) {
+            return Err(CrowdfundingError::PoolNotFound);
+        }
+        Ok(env
+            .storage()
+            .instance()
+            .get(&StorageKey::PoolBalance(pool_id))
+            .unwrap_or(0))
     }
 
     fn get_pool_metadata(env: Env, pool_id: u64) -> (String, String, String) {

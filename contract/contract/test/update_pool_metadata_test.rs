@@ -2,6 +2,7 @@
 
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
+    token::StellarAssetClient,
     Address, Env, String,
 };
 
@@ -41,6 +42,7 @@ fn create_test_pool(env: &Env, client: &CrowdfundingContractClient<'_>, creator:
         token_address: token_id.clone(),
     };
 
+    StellarAssetClient::new(env, token_id).mint(creator, &config.target_amount);
     client.create_pool(creator, &config)
 }
 

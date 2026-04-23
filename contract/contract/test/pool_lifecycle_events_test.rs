@@ -7,6 +7,7 @@ use crate::{
 use soroban_sdk::{
     symbol_short,
     testutils::{Address as _, Events},
+    token::StellarAssetClient,
     Address, Env, String, Symbol,
 };
 
@@ -38,6 +39,17 @@ fn make_pool_config(env: &Env, token: &Address) -> PoolConfig {
     }
 }
 
+fn mint_and_create(
+    env: &Env,
+    client: &CrowdfundingContractClient<'_>,
+    token: &Address,
+    creator: &Address,
+) -> u64 {
+    let cfg = make_pool_config(env, token);
+    StellarAssetClient::new(env, token).mint(creator, &cfg.target_amount);
+    client.create_pool(creator, &cfg)
+}
+
 // ---------------------------------------------------------------------------
 // PoolCre — emitted by create_pool
 // ---------------------------------------------------------------------------
@@ -48,7 +60,7 @@ fn test_pool_cre_event_emitted_on_create_pool() {
     let (client, _, token) = setup(&env);
     let creator = Address::generate(&env);
 
-    client.create_pool(&creator, &make_pool_config(&env, &token));
+    mint_and_create(&env, &client, &token, &creator);
 
     let pool_cre = symbol_short!("PoolCre");
     let found = env.events().all().iter().any(|(_, topics, _)| {
@@ -67,7 +79,7 @@ fn test_pool_cre_event_contains_pool_id_and_creator() {
     let (client, _, token) = setup(&env);
     let creator = Address::generate(&env);
 
-    let pool_id = client.create_pool(&creator, &make_pool_config(&env, &token));
+    let pool_id = mint_and_create(&env, &client, &token, &creator);
 
     let pool_cre = symbol_short!("PoolCre");
     let found = env.events().all().iter().any(|(_, topics, _)| {
@@ -100,7 +112,7 @@ fn test_pool_upd_event_emitted_on_metadata_update() {
     let (client, _, token) = setup(&env);
     let creator = Address::generate(&env);
 
-    let pool_id = client.create_pool(&creator, &make_pool_config(&env, &token));
+    let pool_id = mint_and_create(&env, &client, &token, &creator);
     let new_hash = String::from_str(&env, "QmTestHash42");
 
     client.update_pool_metadata_hash(&pool_id, &creator, &new_hash);
@@ -125,7 +137,7 @@ fn test_pool_upd_event_payload_contains_new_hash() {
     let (client, _, token) = setup(&env);
     let creator = Address::generate(&env);
 
-    let pool_id = client.create_pool(&creator, &make_pool_config(&env, &token));
+    let pool_id = mint_and_create(&env, &client, &token, &creator);
     let new_hash = String::from_str(&env, "QmPayloadHash99");
 
     client.update_pool_metadata_hash(&pool_id, &creator, &new_hash);
@@ -159,7 +171,7 @@ fn test_pool_pau_event_emitted_when_pool_paused() {
     let (client, _, token) = setup(&env);
     let creator = Address::generate(&env);
 
-    let pool_id = client.create_pool(&creator, &make_pool_config(&env, &token));
+    let pool_id = mint_and_create(&env, &client, &token, &creator);
     client.update_pool_state(&pool_id, &PoolState::Paused);
 
     let pool_pau = symbol_short!("PoolPau");
@@ -182,8 +194,7 @@ fn test_pool_pau_not_emitted_for_non_pause_transitions() {
     let (client, _, token) = setup(&env);
     let creator = Address::generate(&env);
 
-    let pool_id = client.create_pool(&creator, &make_pool_config(&env, &token));
-    // Transition to Completed — must NOT emit PoolPau
+    let pool_id = mint_and_create(&env, &client, &token, &creator);
     client.update_pool_state(&pool_id, &PoolState::Completed);
 
     let pool_pau = symbol_short!("PoolPau");
@@ -206,7 +217,7 @@ fn test_pool_pau_topic_contains_pool_id() {
     let (client, _, token) = setup(&env);
     let creator = Address::generate(&env);
 
-    let pool_id = client.create_pool(&creator, &make_pool_config(&env, &token));
+    let pool_id = mint_and_create(&env, &client, &token, &creator);
     client.update_pool_state(&pool_id, &PoolState::Paused);
 
     let pool_pau = symbol_short!("PoolPau");
@@ -238,7 +249,7 @@ fn test_pool_state_updated_event_reflects_accurate_state() {
     let (client, _, token) = setup(&env);
     let creator = Address::generate(&env);
 
-    let pool_id = client.create_pool(&creator, &make_pool_config(&env, &token));
+    let pool_id = mint_and_create(&env, &client, &token, &creator);
     client.update_pool_state(&pool_id, &PoolState::Paused);
 
     let state_updated = Symbol::new(&env, "pool_state_updated");

@@ -9,6 +9,7 @@ use crate::{
 };
 use soroban_sdk::{
     testutils::{Address as _, Events},
+    token::StellarAssetClient,
     Address, Env, String, Symbol,
 };
 
@@ -28,6 +29,11 @@ fn setup(env: &Env) -> (CrowdfundingContractClient<'_>, Address, Address) {
     (client, admin, token_address)
 }
 
+/// Mint `amount` tokens to `to` using the SAC test helper.
+fn mint(env: &Env, token: &Address, to: &Address, amount: i128) {
+    StellarAssetClient::new(env, token).mint(to, &amount);
+}
+
 #[test]
 fn test_create_pool_success() {
     let env = Env::default();
@@ -45,6 +51,7 @@ fn test_create_pool_success() {
         token_address: token_address.clone(),
     };
 
+    mint(&env, &token_address, &creator, config.target_amount);
     let pool_id = client.create_pool(&creator, &config);
     assert_eq!(pool_id, 1);
 
@@ -134,6 +141,7 @@ fn test_create_pool_validation_logic() {
     client.pause();
 
     let creator = Address::generate(&env);
+    // No mint needed — the paused check fires before the balance check
     let config = PoolConfig {
         name: String::from_str(&env, "Paused Pool"),
         description: String::from_str(&env, "Desc"),
@@ -179,9 +187,10 @@ fn test_create_pool_emits_event_created() {
         is_private: false,
         duration,
         created_at,
-        token_address,
+        token_address: token_address.clone(),
     };
 
+    mint(&env, &token_address, &creator, target_amount);
     let _pool_id = client.create_pool(&creator, &config);
     let deadline = created_at + duration;
 
