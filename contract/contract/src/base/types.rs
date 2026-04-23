@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, BytesN, String, Vec};
+use soroban_sdk::{contracttype, Address, Bytes, BytesN, String, Vec};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -270,6 +270,26 @@ pub struct PoolContribution {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ApplicationStatus {
+    Pending = 0,
+    Approved = 1,
+    Rejected = 2,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ApplicationDetails {
+    pub pool_id: u64,
+    pub applicant: Address,
+    pub credentials: Bytes,
+    pub submitted_at: u64,
+    pub status: ApplicationStatus,
+    pub reviewer: Option<Address>,
+    pub review_note: Option<String>,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum StorageKey {
     Pool(u64),
     PoolState(u64),
@@ -280,6 +300,7 @@ pub enum StorageKey {
     Contribution(BytesN<32>, Address),
     PoolContribution(u64, Address),
     PoolContributors(u64),
+    Application(u64, Address),
 
     NextPoolId,
     IsPaused,

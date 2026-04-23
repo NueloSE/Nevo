@@ -1,5 +1,5 @@
 #![allow(deprecated)]
-use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String, Vec};
+use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
 
 use crate::base::errors::SecondCrowdfundingError;
 use crate::base::{
@@ -9,12 +9,14 @@ use crate::base::{
         acquire_emergency_lock, reentrancy_lock_logic, release_emergency_lock, release_pool_lock,
     },
     types::{
-        CampaignDetails, CampaignLifecycleStatus, CampaignMetrics, Contribution,
-        EmergencyWithdrawal, EventDetails, EventMetrics, MultiSigConfig, PoolConfig,
-        PoolContribution, PoolMetadata, PoolMetrics, PoolState, StorageKey, MAX_DESCRIPTION_LENGTH,
-        MAX_HASH_LENGTH, MAX_STRING_LENGTH, MAX_URL_LENGTH,
+        ApplicationDetails, ApplicationStatus, CampaignDetails, CampaignLifecycleStatus,
+        CampaignMetrics, Contribution, EmergencyWithdrawal, EventDetails, EventMetrics,
+        MultiSigConfig, PoolConfig, PoolContribution, PoolMetadata, PoolMetrics, PoolState,
+        StorageKey, MAX_DESCRIPTION_LENGTH, MAX_HASH_LENGTH, MAX_STRING_LENGTH,
+        MAX_URL_LENGTH,
     },
 };
+use crate::interfaces::application::ApplicationTrait;
 use crate::interfaces::crowdfunding::CrowdfundingTrait;
 #[cfg(test)]
 use crate::interfaces::second_crowdfunding::SecondCrowdfundingTrait;
@@ -1133,6 +1135,57 @@ impl CrowdfundingTrait for CrowdfundingContract {
         }
     }
 
+    fn update_pool_metadata_hash(
+        env: Env,
+        pool_id: u64,
+        caller: Address,
+        new_hash: String,
+    ) -> Result<(), CrowdfundingError> {
+        if Self::is_paused(env.clone()) {
+            return Err(CrowdfundingError::ContractPaused);
+        }
+
+        let pool_key = StorageKey::Pool(pool_id);
+        if !env.storage().instance().has(&pool_key) {
+            return Err(CrowdfundingError::PoolNotFound);
+        }
+
+        let creator_key = StorageKey::PoolCreator(pool_id);
+        let creator: Address = env
+            .storage()
+            .instance()
+            .get(&creator_key)
+            .ok_or(CrowdfundingError::Unauthorized)?;
+
+        if caller != creator {
+            return Err(CrowdfundingError::Unauthorized);
+        }
+        caller.require_auth();
+
+        if new_hash.len() > MAX_HASH_LENGTH {
+            return Err(CrowdfundingError::InvalidMetadata);
+        }
+
+        let metadata_key = StorageKey::PoolMetadata(pool_id);
+        let mut metadata: PoolMetadata = env
+            .storage()
+            .persistent()
+            .get(&metadata_key)
+            .unwrap_or(PoolMetadata {
+                description: String::from_str(&env, ""),
+                external_url: String::from_str(&env, ""),
+                image_hash: String::from_str(&env, ""),
+            });
+
+        metadata.image_hash = new_hash.clone();
+        env.storage().persistent().set(&metadata_key, &metadata);
+
+        events::pool_metadata_updated(&env, pool_id, caller.clone(), new_hash.clone());
+        events::pool_metadata_updated_v2(&env, pool_id, caller, new_hash);
+
+        Ok(())
+    }
+
     fn update_pool_state(
         env: Env,
         pool_id: u64,
@@ -1166,8 +1219,11 @@ impl CrowdfundingTrait for CrowdfundingContract {
         // Update state
         env.storage().instance().set(&state_key, &new_state);
 
-        // Emit event
-        events::pool_state_updated(&env, pool_id, new_state);
+        // Emit events
+        events::pool_state_updated(&env, pool_id, new_state.clone());
+        if new_state == PoolState::Paused {
+            events::pool_paused(&env, pool_id);
+        }
 
         Ok(())
     }
@@ -1782,7 +1838,8 @@ impl CrowdfundingTrait for CrowdfundingContract {
 
         env.storage()
             .instance()
-            .set(&StorageKey::VerifiedCause(cause), &true);
+            .set(&StorageKey::VerifiedCause(cause.clone()), &true);
+        events::application_approved(&env, admin, cause);
         Ok(())
     }
 
@@ -1791,6 +1848,21 @@ impl CrowdfundingTrait for CrowdfundingContract {
             .instance()
             .get(&StorageKey::VerifiedCause(cause))
             .unwrap_or(false)
+    }
+
+    fn reject_cause(env: Env, cause: Address) -> Result<(), CrowdfundingError> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&StorageKey::Admin)
+            .ok_or(CrowdfundingError::NotInitialized)?;
+        admin.require_auth();
+
+        env.storage()
+            .instance()
+            .remove(&StorageKey::VerifiedCause(cause.clone()));
+        events::application_rejected(&env, admin, cause);
+        Ok(())
     }
 
     fn withdraw_platform_fees(
@@ -1979,6 +2051,122 @@ impl CrowdfundingTrait for CrowdfundingContract {
 
         env.deployer().update_current_contract_wasm(new_wasm_hash);
         Ok(())
+    }
+}
+
+#[contractimpl]
+impl ApplicationTrait for CrowdfundingContract {
+    fn apply_for_scholarship(
+        env: Env,
+        pool_id: u64,
+        applicant: Address,
+        application_credentials: Bytes,
+    ) -> Result<(), CrowdfundingError> {
+        let pool_key = StorageKey::Pool(pool_id);
+        if !env.storage().instance().has(&pool_key) {
+            return Err(CrowdfundingError::PoolNotFound);
+        }
+
+        let state: PoolState = env
+            .storage()
+            .instance()
+            .get(&StorageKey::PoolState(pool_id))
+            .unwrap_or(PoolState::Active);
+        if state != PoolState::Active {
+            return Err(CrowdfundingError::InvalidPoolState);
+        }
+
+        applicant.require_auth();
+
+        if application_credentials.is_empty() {
+            return Err(CrowdfundingError::InvalidApplicationCredentials);
+        }
+
+        let application_key = StorageKey::Application(pool_id, applicant.clone());
+        if env.storage().instance().has(&application_key) {
+            return Err(CrowdfundingError::ApplicationAlreadySubmitted);
+        }
+
+        let application = ApplicationDetails {
+            pool_id,
+            applicant: applicant.clone(),
+            credentials: application_credentials,
+            submitted_at: env.ledger().timestamp(),
+            status: ApplicationStatus::Pending,
+            reviewer: None,
+            review_note: None,
+        };
+
+        env.storage().instance().set(&application_key, &application);
+        Ok(())
+    }
+
+    fn approve_application(
+        env: Env,
+        pool_id: u64,
+        applicant: Address,
+        validator: Address,
+        review_note: Option<String>,
+    ) -> Result<(), CrowdfundingError> {
+        validator.require_auth();
+
+        let application_key = StorageKey::Application(pool_id, applicant.clone());
+        let mut application: ApplicationDetails = env
+            .storage()
+            .instance()
+            .get(&application_key)
+            .ok_or(CrowdfundingError::ApplicationNotFound)?;
+
+        if application.status != ApplicationStatus::Pending {
+            return Err(CrowdfundingError::ApplicationAlreadyReviewed);
+        }
+
+        application.status = ApplicationStatus::Approved;
+        application.reviewer = Some(validator.clone());
+        application.review_note = review_note;
+
+        env.storage().instance().set(&application_key, &application);
+        Ok(())
+    }
+
+    fn reject_application(
+        env: Env,
+        pool_id: u64,
+        applicant: Address,
+        validator: Address,
+        rejection_reason: Option<String>,
+    ) -> Result<(), CrowdfundingError> {
+        validator.require_auth();
+
+        let application_key = StorageKey::Application(pool_id, applicant.clone());
+        let mut application: ApplicationDetails = env
+            .storage()
+            .instance()
+            .get(&application_key)
+            .ok_or(CrowdfundingError::ApplicationNotFound)?;
+
+        if application.status != ApplicationStatus::Pending {
+            return Err(CrowdfundingError::ApplicationAlreadyReviewed);
+        }
+
+        application.status = ApplicationStatus::Rejected;
+        application.reviewer = Some(validator.clone());
+        application.review_note = rejection_reason;
+
+        env.storage().instance().set(&application_key, &application);
+        Ok(())
+    }
+
+    fn get_application(
+        env: Env,
+        pool_id: u64,
+        applicant: Address,
+    ) -> Result<ApplicationDetails, CrowdfundingError> {
+        let application_key = StorageKey::Application(pool_id, applicant.clone());
+        env.storage()
+            .instance()
+            .get(&application_key)
+            .ok_or(CrowdfundingError::ApplicationNotFound)
     }
 }
 

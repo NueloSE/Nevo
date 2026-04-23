@@ -108,6 +108,13 @@ pub trait CrowdfundingTrait {
 
     fn get_pool_metadata(env: Env, pool_id: u64) -> (String, String, String);
 
+    fn update_pool_metadata_hash(
+        env: Env,
+        pool_id: u64,
+        caller: Address,
+        new_hash: String,
+    ) -> Result<(), CrowdfundingError>;
+
     fn update_pool_state(
         env: Env,
         pool_id: u64,
@@ -171,6 +178,8 @@ pub trait CrowdfundingTrait {
     fn verify_cause(env: Env, cause: Address) -> Result<(), CrowdfundingError>;
 
     fn is_cause_verified(env: Env, cause: Address) -> bool;
+
+    fn reject_cause(env: Env, cause: Address) -> Result<(), CrowdfundingError>;
 
     fn withdraw_platform_fees(env: Env, to: Address, amount: i128)
         -> Result<(), CrowdfundingError>;
