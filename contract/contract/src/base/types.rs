@@ -71,6 +71,15 @@ pub struct PoolMetadata {
     pub image_hash: String,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PoolDetails {
+    pub config: PoolConfig,
+    pub state: PoolState,
+    pub metrics: PoolMetrics,
+    pub metadata: PoolMetadata,
+}
+
 pub const MAX_DESCRIPTION_LENGTH: u32 = 500;
 pub const MAX_URL_LENGTH: u32 = 200;
 pub const MAX_HASH_LENGTH: u32 = 100;
@@ -555,5 +564,37 @@ mod tests {
         assert_eq!(event.deadline, 1_700_000_000);
         assert_eq!(event.creator, creator);
         assert_eq!(event.token, token);
+    }
+
+    #[test]
+    fn pool_details_instantiation() {
+        let env = Env::default();
+        let creator = Address::generate(&env);
+        let token = Address::generate(&env);
+        let config = PoolConfig {
+            name: String::from_str(&env, "Test Pool"),
+            description: String::from_str(&env, "A test scholarship pool"),
+            target_amount: 1000,
+            min_contribution: 10,
+            is_private: false,
+            duration: 86400,
+            created_at: 1234567890,
+            token_address: token.clone(),
+        };
+        let metadata = PoolMetadata {
+            description: String::from_str(&env, "Metadata description"),
+            external_url: String::from_str(&env, "https://example.com"),
+            image_hash: String::from_str(&env, "hash123"),
+        };
+        let details = PoolDetails {
+            config: config.clone(),
+            state: PoolState::Active,
+            metrics: PoolMetrics::new(),
+            metadata: metadata.clone(),
+        };
+        assert_eq!(details.config, config);
+        assert_eq!(details.state, PoolState::Active);
+        assert_eq!(details.metrics.total_raised, 0);
+        assert_eq!(details.metadata, metadata);
     }
 }
