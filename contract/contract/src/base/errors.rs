@@ -75,6 +75,11 @@ pub enum SecondCrowdfundingError {
     EventNotFound = 2,
     EventSoldOut = 3,
     EventExpired = 4,
+    InsufficientSponsorBalance = 5,
+    ApplicationNotFound = 6,
+    ApplicationAlreadySubmitted = 7,
+    ApplicationAlreadyReviewed = 8,
+    InvalidApplicationCredentials = 9,
 }
 
 #[cfg(test)]

@@ -2,6 +2,7 @@
 
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
+    token::StellarAssetClient,
     Address, Env, String,
 };
 
@@ -39,9 +40,10 @@ fn create_test_pool(env: &Env, client: &CrowdfundingContractClient<'_>, creator:
         duration: 86400, // 1 day
         created_at: 1_000,
         token_address: token_id.clone(),
-        validator: creator.clone(),
+            validator: admin.clone(),
     };
 
+    StellarAssetClient::new(env, token_id).mint(creator, &config.target_amount);
     client.create_pool(creator, &config)
 }
 
@@ -51,7 +53,7 @@ fn test_update_pool_metadata_hash_success() {
     let (client, _admin, token_id) = setup_test(&env);
 
     let creator = Address::generate(&env);
-    let pool_id = create_test_pool(&env, &client, &creator, &token_id);
+    let pool_id = create_test_pool(&env, &client, &creator, &_token_id);
 
     let new_hash = String::from_str(&env, "QmNewHash123456789");
 
@@ -70,7 +72,7 @@ fn test_update_pool_metadata_hash_only_creator_can_update() {
 
     let creator = Address::generate(&env);
     let non_creator = Address::generate(&env);
-    let pool_id = create_test_pool(&env, &client, &creator, &token_id);
+    let pool_id = create_test_pool(&env, &client, &creator, &_token_id);
 
     let new_hash = String::from_str(&env, "QmNewHash123456789");
 
@@ -105,7 +107,7 @@ fn test_update_pool_metadata_hash_too_long() {
     let (client, _admin, token_id) = setup_test(&env);
 
     let creator = Address::generate(&env);
-    let pool_id = create_test_pool(&env, &client, &creator, &token_id);
+    let pool_id = create_test_pool(&env, &client, &creator, &_token_id);
 
     // Create a hash that exceeds MAX_HASH_LENGTH (100 characters)
     let long_hash = String::from_str(
@@ -127,7 +129,7 @@ fn test_update_pool_metadata_hash_when_paused() {
     let (client, _admin, token_id) = setup_test(&env);
 
     let creator = Address::generate(&env);
-    let pool_id = create_test_pool(&env, &client, &creator, &token_id);
+    let pool_id = create_test_pool(&env, &client, &creator, &_token_id);
 
     // Pause the contract
     client.pause();
@@ -148,7 +150,7 @@ fn test_update_pool_metadata_hash_multiple_times() {
     let (client, _admin, token_id) = setup_test(&env);
 
     let creator = Address::generate(&env);
-    let pool_id = create_test_pool(&env, &client, &creator, &token_id);
+    let pool_id = create_test_pool(&env, &client, &creator, &_token_id);
 
     // First update
     let hash1 = String::from_str(&env, "QmFirstHash");
@@ -173,7 +175,7 @@ fn test_update_pool_metadata_hash_event_emission() {
     let (client, _admin, token_id) = setup_test(&env);
 
     let creator = Address::generate(&env);
-    let pool_id = create_test_pool(&env, &client, &creator, &token_id);
+    let pool_id = create_test_pool(&env, &client, &creator, &_token_id);
 
     let new_hash = String::from_str(&env, "QmNewHash123456789");
 
