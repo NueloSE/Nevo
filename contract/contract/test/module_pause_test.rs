@@ -514,7 +514,7 @@ fn test_pool_operations_blocked_when_paused() {
 
     // Test various pool operations are blocked
     use crate::base::types::PoolState;
-    let result = client.try_update_pool_state(&pool_id, &PoolState::Paused);
+    let result = client.try_update_pool_state(&pool_id, &admin, &PoolState::Paused);
     assert_eq!(result, Err(Ok(CrowdfundingError::PoolsPaused)));
 }
 

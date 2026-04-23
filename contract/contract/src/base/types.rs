@@ -351,6 +351,7 @@ mod tests {
     fn pool_config_validation_success() {
         let env = Env::default();
         let token = Address::generate(&env);
+        let validator = Address::generate(&env);
         let cfg = PoolConfig {
             name: String::from_str(&env, "Education Fund"),
             description: String::from_str(&env, "Fund for student education materials"),
@@ -360,6 +361,7 @@ mod tests {
             duration: 30 * 24 * 60 * 60,
             created_at: 1,
             token_address: token,
+            validator,
         };
 
         cfg.validate();
@@ -370,6 +372,7 @@ mod tests {
     fn pool_config_invalid_target_amount_panics() {
         let env = Env::default();
         let token = Address::generate(&env);
+        let validator = Address::generate(&env);
         let cfg = PoolConfig {
             name: String::from_str(&env, "Invalid Target"),
             description: String::from_str(&env, "Description"),
@@ -379,6 +382,7 @@ mod tests {
             duration: 30 * 24 * 60 * 60,
             created_at: 1,
             token_address: token,
+            validator,
         };
 
         cfg.validate();

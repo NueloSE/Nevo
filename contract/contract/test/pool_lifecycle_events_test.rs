@@ -36,6 +36,7 @@ fn make_pool_config(env: &Env, token: &Address) -> PoolConfig {
         duration: 86_400,
         created_at: env.ledger().timestamp(),
         token_address: token.clone(),
+            validator: admin.clone(),
     }
 }
 
@@ -172,7 +173,7 @@ fn test_pool_pau_event_emitted_when_pool_paused() {
     let creator = Address::generate(&env);
 
     let pool_id = mint_and_create(&env, &client, &token, &creator);
-    client.update_pool_state(&pool_id, &PoolState::Paused);
+    client.update_pool_state(&pool_id, &admin, &PoolState::Paused);
 
     let pool_pau = symbol_short!("PoolPau");
     let found = env.events().all().iter().any(|(_, topics, _)| {
@@ -195,7 +196,7 @@ fn test_pool_pau_not_emitted_for_non_pause_transitions() {
     let creator = Address::generate(&env);
 
     let pool_id = mint_and_create(&env, &client, &token, &creator);
-    client.update_pool_state(&pool_id, &PoolState::Completed);
+    client.update_pool_state(&pool_id, &admin, &PoolState::Completed);
 
     let pool_pau = symbol_short!("PoolPau");
     let found = env.events().all().iter().any(|(_, topics, _)| {
@@ -218,7 +219,7 @@ fn test_pool_pau_topic_contains_pool_id() {
     let creator = Address::generate(&env);
 
     let pool_id = mint_and_create(&env, &client, &token, &creator);
-    client.update_pool_state(&pool_id, &PoolState::Paused);
+    client.update_pool_state(&pool_id, &admin, &PoolState::Paused);
 
     let pool_pau = symbol_short!("PoolPau");
     let found = env.events().all().iter().any(|(_, topics, _)| {
@@ -250,7 +251,7 @@ fn test_pool_state_updated_event_reflects_accurate_state() {
     let creator = Address::generate(&env);
 
     let pool_id = mint_and_create(&env, &client, &token, &creator);
-    client.update_pool_state(&pool_id, &PoolState::Paused);
+    client.update_pool_state(&pool_id, &admin, &PoolState::Paused);
 
     let state_updated = Symbol::new(&env, "pool_state_updated");
     let found = env.events().all().iter().any(|(_, topics, data)| {

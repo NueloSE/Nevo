@@ -222,7 +222,7 @@ fn test_refund_rejected_on_disbursed_pool() {
     client.contribute(&pool_id, &contributor, &token_id, &100_000, &false);
 
     use crate::base::types::PoolState;
-    client.update_pool_state(&pool_id, &PoolState::Disbursed);
+    client.update_pool_state(&pool_id, &admin, &PoolState::Disbursed);
 
     advance_past_grace(&env);
 

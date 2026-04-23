@@ -635,7 +635,8 @@ fn test_update_pool_state_nonexistent() {
     let contract_id = env.register(CrowdfundingContract, ());
     let client = CrowdfundingContractClient::new(&env, &contract_id);
 
-    let result = client.try_update_pool_state(&999, &PoolState::Paused);
+    let caller = Address::generate(&env);
+    let result = client.try_update_pool_state(&999, &caller, &PoolState::Paused);
     assert_eq!(result, Err(Ok(CrowdfundingError::PoolNotFound)));
 }
 
@@ -741,8 +742,8 @@ fn test_multiple_pools() {
     assert_eq!(pool2.target_amount, target2);
 
     // Update different states
-    client.update_pool_state(&pool_id1, &PoolState::Paused);
-    client.update_pool_state(&pool_id2, &PoolState::Active);
+    client.update_pool_state(&pool_id1, &admin, &PoolState::Paused);
+    client.update_pool_state(&pool_id2, &admin, &PoolState::Active);
 }
 
 #[test]
@@ -2362,7 +2363,7 @@ fn test_refund_fails_if_disbursed() {
     );
 
     // Mark pool as disbursed
-    client.update_pool_state(&pool_id, &PoolState::Disbursed);
+    client.update_pool_state(&pool_id, &admin, &PoolState::Disbursed);
 
     // Advance time past deadline + grace period
     let grace_period = 604800u64;
@@ -2835,7 +2836,7 @@ fn test_contribute_to_non_active_pool() {
         &None::<Vec<Address>>,
     );
 
-    client.update_pool_state(&pool_id, &PoolState::Completed);
+    client.update_pool_state(&pool_id, &admin, &PoolState::Completed);
 
     token_admin_client.mint(&contributor, &5_000i128);
 
@@ -3782,6 +3783,7 @@ fn test_update_pool_state_validator_authorization() {
         duration: 86400,
         created_at: env.ledger().timestamp(),
         token_address: token_contract.address(),
+            validator: admin.clone(),
         validator: validator.clone(),
     };
 
@@ -3823,6 +3825,7 @@ fn test_update_pool_state_lock_mechanics() {
         duration: 86400,
         created_at: env.ledger().timestamp(),
         token_address: token_contract.address(),
+            validator: admin.clone(),
         validator: creator.clone(),
     };
 
@@ -3874,6 +3877,7 @@ fn test_validator_malicious_modification_prevention() {
         duration: 86400,
         created_at: env.ledger().timestamp(),
         token_address: token_contract.address(),
+            validator: admin.clone(),
         validator: validator1.clone(),
     };
     let pool_id1 = client.create_pool(&creator1, &config1);
@@ -3889,6 +3893,7 @@ fn test_validator_malicious_modification_prevention() {
         duration: 86400,
         created_at: env.ledger().timestamp(),
         token_address: token_contract.address(),
+            validator: admin.clone(),
         validator: validator2.clone(),
     };
     let pool_id2 = client.create_pool(&creator2, &config2);

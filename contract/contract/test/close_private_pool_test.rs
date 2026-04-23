@@ -30,6 +30,7 @@ fn create_private_pool(
     env: &Env,
     creator: &Address,
     token_address: &Address,
+            validator: admin.clone(),
 ) -> u64 {
     let config = PoolConfig {
         name: String::from_str(env, "Private Pool"),
@@ -40,6 +41,7 @@ fn create_private_pool(
         duration: 86400,
         created_at: env.ledger().timestamp(),
         token_address: token_address.clone(),
+            validator: admin.clone(),
     };
     client.create_pool(creator, &config)
 }
@@ -49,6 +51,7 @@ fn create_public_pool(
     env: &Env,
     creator: &Address,
     token_address: &Address,
+            validator: admin.clone(),
 ) -> u64 {
     let config = PoolConfig {
         name: String::from_str(env, "Public Pool"),
@@ -59,6 +62,7 @@ fn create_public_pool(
         duration: 86400,
         created_at: env.ledger().timestamp(),
         token_address: token_address.clone(),
+            validator: admin.clone(),
     };
     client.create_pool(creator, &config)
 }
@@ -143,7 +147,7 @@ fn test_owner_can_close_paused_private_pool() {
     let owner = Address::generate(&env);
     let pool_id = create_private_pool(&client, &env, &owner, &token_address);
 
-    client.update_pool_state(&pool_id, &PoolState::Paused);
+    client.update_pool_state(&pool_id, &admin, &PoolState::Paused);
     client.close_pool(&pool_id, &owner);
 
     let is_closed = client.is_closed(&pool_id);
@@ -158,7 +162,7 @@ fn test_owner_cannot_close_completed_private_pool() {
     let owner = Address::generate(&env);
     let pool_id = create_private_pool(&client, &env, &owner, &token_address);
 
-    client.update_pool_state(&pool_id, &PoolState::Completed);
+    client.update_pool_state(&pool_id, &admin, &PoolState::Completed);
 
     let result = client.try_close_pool(&pool_id, &owner);
     assert_eq!(result, Err(Ok(CrowdfundingError::InvalidPoolState)));
@@ -235,7 +239,7 @@ fn test_admin_can_close_after_disbursement() {
     let owner = Address::generate(&env);
     let pool_id = create_private_pool(&client, &env, &owner, &token_address);
 
-    client.update_pool_state(&pool_id, &PoolState::Disbursed);
+    client.update_pool_state(&pool_id, &admin, &PoolState::Disbursed);
     client.close_pool(&pool_id, &admin);
 
     assert!(client.is_closed(&pool_id));
@@ -249,7 +253,7 @@ fn test_owner_can_close_after_cancellation() {
     let owner = Address::generate(&env);
     let pool_id = create_private_pool(&client, &env, &owner, &token_address);
 
-    client.update_pool_state(&pool_id, &PoolState::Cancelled);
+    client.update_pool_state(&pool_id, &admin, &PoolState::Cancelled);
     client.close_pool(&pool_id, &owner);
 
     assert!(client.is_closed(&pool_id));

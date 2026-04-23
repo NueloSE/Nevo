@@ -132,6 +132,7 @@ fn test_create_pool_invalid_description_length() {
         duration: 86400,
         created_at: env.ledger().timestamp(),
         token_address,
+        validator: creator.clone(),
     };
 
     let _result = client.try_create_pool(&creator, &config);
@@ -155,6 +156,7 @@ fn test_create_pool_validation_logic() {
         duration: 86400,
         created_at: env.ledger().timestamp(),
         token_address,
+        validator: creator.clone(),
     };
 
     let result = client.try_create_pool(&creator, &config);
@@ -192,6 +194,7 @@ fn test_create_pool_emits_event_created() {
         duration,
         created_at,
         token_address: token_address.clone(),
+        validator: creator.clone(),
     };
 
     mint(&env, &token_address, &creator, target_amount);
