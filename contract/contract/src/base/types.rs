@@ -280,7 +280,6 @@ pub enum StorageKey {
     Contribution(BytesN<32>, Address),
     PoolContribution(u64, Address),
     PoolContributors(u64),
-    Event(BytesN<32>),
 
     NextPoolId,
     IsPaused,
