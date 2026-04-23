@@ -1,5 +1,6 @@
 // mod blacklist_test; // Features not yet implemented
 mod batch_claim_test;
+mod fund_edu_contract_test;
 mod buy_ticket_test;
 mod close_pool_test;
 mod close_private_pool_test;
