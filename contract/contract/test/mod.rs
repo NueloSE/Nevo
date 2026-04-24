@@ -22,3 +22,4 @@ mod validate_string_length_test;
 mod verify_cause;
 mod withdraw_platform_fees_test;
 mod application_test;
+mod milestone_test;
