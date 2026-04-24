@@ -84,6 +84,7 @@ pub enum ApplicationStatus {
     Pending = 0,
     Approved = 1,
     Rejected = 2,
+    Revoked = 3,
 }
 
 /// A scholarship application submitted to a pool.
@@ -458,6 +459,7 @@ pub enum ApplicationStatus {
     Pending = 0,
     Approved = 1,
     Rejected = 2,
+    Revoked = 3,
 }
 
 #[contracttype]

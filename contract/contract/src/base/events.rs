@@ -548,6 +548,11 @@ pub fn scholarship_rejected(env: &Env, pool_id: u64, applicant: Address, validat
     let topics = (Symbol::new(env, "scholarship_rejected"), pool_id, applicant);
     env.events().publish(topics, validator);
 }
+
+pub fn scholarship_revoked(env: &Env, pool_id: u64, student: Address, validator: Address) {
+    let topics = (Symbol::new(env, "scholarship_revoked"), pool_id, student);
+    env.events().publish(topics, validator);
+}
 pub fn school_registered(env: &Env, school_addr: Address) {
     let topics = (symbol_short!("SchReg"), school_addr);
     env.events().publish(topics, ());

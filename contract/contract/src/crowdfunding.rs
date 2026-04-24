@@ -2606,6 +2606,53 @@ impl ApplicationTrait for CrowdfundingContract {
             .get(&application_key)
             .ok_or(CrowdfundingError::ApplicationNotFound)
     }
+
+    fn revoke_scholarship(
+        env: Env,
+        pool_id: u64,
+        student: Address,
+        validator: Address,
+    ) -> Result<(), CrowdfundingError> {
+        // Pool must exist and validator must match
+        let pool_key = StorageKey::Pool(pool_id);
+        let pool: PoolConfig = env
+            .storage()
+            .instance()
+            .get(&pool_key)
+            .ok_or(CrowdfundingError::PoolNotFound)?;
+
+        if validator != pool.validator {
+            return Err(CrowdfundingError::Unauthorized);
+        }
+        validator.require_auth();
+
+        // Application must exist and be Approved
+        let application_key = StorageKey::Application(pool_id, student.clone());
+        let mut application: ApplicationDetails = env
+            .storage()
+            .instance()
+            .get(&application_key)
+            .ok_or(CrowdfundingError::ApplicationNotFound)?;
+
+        if application.status != ApplicationStatus::Approved {
+            return Err(CrowdfundingError::ApplicationAlreadyReviewed);
+        }
+
+        // Flip status to Revoked
+        application.status = ApplicationStatus::Revoked;
+        env.storage().instance().set(&application_key, &application);
+
+        // Return the previously allocated amount to the unallocated pool
+        let alloc_key = StorageKey::PoolAllocated(pool_id);
+        let current_alloc: i128 = env.storage().instance().get(&alloc_key).unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&alloc_key, &current_alloc.saturating_sub(application.requested_amount));
+
+        events::scholarship_revoked(&env, pool_id, student, validator);
+
+        Ok(())
+    }
 }
 
 impl CrowdfundingContract {
