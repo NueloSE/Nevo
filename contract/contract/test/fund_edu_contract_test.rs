@@ -1,10 +1,7 @@
 #![cfg(test)]
 
 use crate::{
-    base::{
-        errors::CrowdfundingError,
-        types::PoolConfig,
-    },
+    base::{errors::CrowdfundingError, types::PoolConfig},
     contract::{FundEduContract, FundEduContractClient},
 };
 use soroban_sdk::{testutils::Address as _, Address, Env, String};
@@ -46,7 +43,7 @@ fn test_fund_edu_create_pool_success() {
         duration: 30 * 24 * 60 * 60,
         created_at: env.ledger().timestamp(),
         token_address: token_address.clone(),
-            validator: admin.clone(),
+        validator: admin.clone(),
     };
 
     let pool_id = client.create_pool(&creator, &config);

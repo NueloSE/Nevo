@@ -36,7 +36,7 @@ fn make_pool_config(env: &Env, token: &Address) -> PoolConfig {
         duration: 86_400,
         created_at: env.ledger().timestamp(),
         token_address: token.clone(),
-            validator: admin.clone(),
+        validator: admin.clone(),
     }
 }
 
@@ -234,10 +234,7 @@ fn test_pool_pau_topic_contains_pool_id() {
         u64::from_val(&env, &topics.get(1).unwrap()) == pool_id
     });
 
-    assert!(
-        found,
-        "PoolPau topic must include the pool_id for indexing"
-    );
+    assert!(found, "PoolPau topic must include the pool_id for indexing");
 }
 
 // ---------------------------------------------------------------------------

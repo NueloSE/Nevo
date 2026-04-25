@@ -31,7 +31,15 @@ impl CrowdfundingTrait for FundEduContract {
         deadline: u64,
         token_address: Address,
     ) -> Result<(), CrowdfundingError> {
-        CrowdfundingContract::create_campaign(env, id, title, creator, goal, deadline, token_address)
+        CrowdfundingContract::create_campaign(
+            env,
+            id,
+            title,
+            creator,
+            goal,
+            deadline,
+            token_address,
+        )
     }
 
     fn get_campaign(env: Env, id: BytesN<32>) -> Result<CampaignDetails, CrowdfundingError> {
@@ -245,6 +253,10 @@ impl CrowdfundingTrait for FundEduContract {
         CrowdfundingContract::is_paused(env)
     }
 
+    fn unpause_pool(env: Env, pool_id: u64, caller: Address) -> Result<(), CrowdfundingError> {
+        CrowdfundingContract::unpause_pool(env, pool_id, caller)
+    }
+
     fn contribute(
         env: Env,
         pool_id: u64,
@@ -368,63 +380,16 @@ impl CrowdfundingTrait for FundEduContract {
         CrowdfundingContract::claim_pool_funds(env, pool_id, student)
     }
 
-    fn apply_for_scholarship(
+    fn get_pool_liquid_balance(env: Env, pool_id: u64) -> Result<i128, CrowdfundingError> {
+        CrowdfundingContract::get_pool_liquid_balance(env, pool_id)
+    }
+
+    fn withdraw_unallocated(
         env: Env,
         pool_id: u64,
-        applicant: Address,
-    ) -> Result<(), ValidationError> {
-        CrowdfundingContract::apply_for_scholarship(env, pool_id, applicant)
-    }
-
-    fn approve_application(env: Env, pool_id: u32, student: Address) -> Result<(), ValidationError> {
-        CrowdfundingContract::approve_application(env, pool_id, student)
-    }
-
-    fn reject_application(
-        env: Env,
-        pool_id: u64,
-        applicant: Address,
-        validator: Address,
-    ) -> Result<(), ValidationError> {
-        CrowdfundingContract::reject_application(env, pool_id, applicant, validator)
-    }
-
-    fn get_application(
-        env: Env,
-        pool_id: u64,
-        applicant: Address,
-    ) -> Result<ScholarshipApplication, ValidationError> {
-        CrowdfundingContract::get_application(env, pool_id, applicant)
-    }
-
-    fn remove_school(env: Env, school_addr: Address) -> Result<(), CrowdfundingError> {
-        CrowdfundingContract::remove_school(env, school_addr)
-    }
-
-    fn get_application_details(
-        env: Env,
-        pool_id: u64,
-        applicant: Address,
-    ) -> Result<ApplicationDetails, CrowdfundingError> {
-        CrowdfundingContract::get_application_details(env, pool_id, applicant)
-    }
-
-    fn add_milestone(
-        env: Env,
-        pool_id: u64,
-        applicant: Address,
-        unlock_date: u64,
+        sponsor: Address,
         amount: i128,
     ) -> Result<(), CrowdfundingError> {
-        CrowdfundingContract::add_milestone(env, pool_id, applicant, unlock_date, amount)
-    }
-
-    fn unlock_milestone(
-        env: Env,
-        pool_id: u64,
-        applicant: Address,
-        milestone_index: u32,
-    ) -> Result<(), CrowdfundingError> {
-        CrowdfundingContract::unlock_milestone(env, pool_id, applicant, milestone_index)
+        CrowdfundingContract::withdraw_unallocated(env, pool_id, sponsor, amount)
     }
 }

@@ -1,6 +1,6 @@
 use soroban_sdk::{Address, Bytes, Env, String};
 
-use crate::base::{errors::CrowdfundingError, types::{ApplicationDetails}};
+use crate::base::{errors::CrowdfundingError, types::ApplicationDetails};
 
 /// Defines the user and validator-facing application lifecycle for FundEdu pools.
 ///

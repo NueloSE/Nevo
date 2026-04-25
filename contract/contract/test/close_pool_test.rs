@@ -30,7 +30,6 @@ fn create_test_pool(
     env: &Env,
     creator: &Address,
     token_address: &Address,
-            validator: admin.clone(),
 ) -> u64 {
     let config = PoolConfig {
         name: String::from_str(env, "Test Pool"),
@@ -41,7 +40,6 @@ fn create_test_pool(
         duration: 86400, // 1 day
         created_at: env.ledger().timestamp(),
         token_address: token_address.clone(),
-            validator: admin.clone(),
         validator: creator.clone(), // For simplicity, creator is also validator
     };
 

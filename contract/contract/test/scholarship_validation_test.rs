@@ -105,7 +105,10 @@ fn test_apply_for_scholarship_emits_app_sub_event() {
         }
     });
 
-    assert!(found, "AppSub event must be emitted with pool_id, student, and target_amount");
+    assert!(
+        found,
+        "AppSub event must be emitted with pool_id, student, and target_amount"
+    );
 }
 
 #[test]

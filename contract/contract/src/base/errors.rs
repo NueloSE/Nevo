@@ -1,77 +1,130 @@
 use soroban_sdk::contracterror;
 
+/// Documentation for this item.
+#[allow(missing_docs)]
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
+/// Defines the possible states or errors for crowdfundingerror.
 pub enum CrowdfundingError {
+    /// CampaignNotFound = 1.
     CampaignNotFound = 1,
+    /// InvalidTitle = 2.
     InvalidTitle = 2,
+    /// InvalidGoal = 3.
     InvalidGoal = 3,
+    /// InvalidDeadline = 4.
     InvalidDeadline = 4,
+    /// CampaignAlreadyExists = 5.
     CampaignAlreadyExists = 5,
+    /// PoolNotFound = 6.
     PoolNotFound = 6,
+    /// InvalidPoolName = 7.
     InvalidPoolName = 7,
+    /// InvalidPoolTarget = 8.
     InvalidPoolTarget = 8,
-    InvalidPoolState = 9,
-    ContractPaused = 10,
-    InvalidAmount = 11,
-    TokenTransferFailed = 12,
-    Unauthorized = 13,
-    InvalidMetadata = 14,
-    CampaignExpired = 15,
-    InvalidDonationAmount = 16,
-    CampaignAlreadyFunded = 17,
-    InvalidToken = 18,
-    InvalidFee = 19,
-    InsufficientBalance = 20,
-    RefundNotAvailable = 21,
-    PoolAlreadyClosed = 22,
-    UserBlacklisted = 23,
-    CampaignCancelled = 24,
-    ApplicationNotFound = 25,
-    ApplicationAlreadySubmitted = 26,
-    ApplicationAlreadyReviewed = 27,
-    InvalidApplicationCredentials = 28,
-    NotInitialized = 29,
-    InvalidPoolDeadline = 30,
-    ContractAlreadyPaused = 31,
-    ContractAlreadyUnpaused = 32,
-    ContractAlreadyInitialized = 33,
-    InvalidGoalUpdate = 34,
-    NoContributionToRefund = 35,
-    PoolAlreadyExists = 36,
-    InsufficientSponsorBalance = 37,
-    InvalidMultiSigConfig = 38,
-    InvalidSignerCount = 39,
-    PoolAlreadyDisbursed = 40,
+    /// InvalidPoolDeadline = 9.
+    InvalidPoolDeadline = 9,
+    /// PoolAlreadyExists = 10.
+    PoolAlreadyExists = 10,
+    /// InvalidPoolState = 11.
+    InvalidPoolState = 11,
+    /// ContractPaused = 12.
+    ContractPaused = 12,
+    /// ContractAlreadyPaused = 13.
+    ContractAlreadyPaused = 13,
+    /// ContractAlreadyUnpaused = 14.
+    ContractAlreadyUnpaused = 14,
+    /// ContractAlreadyInitialized = 15.
+    ContractAlreadyInitialized = 15,
+    /// InvalidAmount = 16.
+    InvalidAmount = 16,
+    /// TokenTransferFailed = 17.
+    TokenTransferFailed = 17,
+    /// InvalidMultiSigConfig = 18.
+    InvalidMultiSigConfig = 18,
+    /// NotAuthorizedSigner = 19.
+    NotAuthorizedSigner = 19,
+    /// AlreadyApproved = 20.
+    AlreadyApproved = 20,
+    /// DisbursementNotFound = 21.
+    DisbursementNotFound = 21,
+    /// DisbursementAlreadyExecuted = 22.
+    DisbursementAlreadyExecuted = 22,
+    /// InsufficientApprovals = 23.
+    InsufficientApprovals = 23,
+    /// SignerAlreadyExists = 24.
+    SignerAlreadyExists = 24,
+    /// SignerNotFound = 25.
+    SignerNotFound = 25,
+    /// CannotRemoveLastSigner = 26.
+    CannotRemoveLastSigner = 26,
+    /// InvalidSignerCount = 27.
+    InvalidSignerCount = 27,
+    /// NotInitialized = 28.
+    NotInitialized = 28,
+    /// Unauthorized = 29.
+    Unauthorized = 29,
+    /// InvalidMetadata = 30.
+    InvalidMetadata = 30,
+    /// CampaignExpired = 31.
+    CampaignExpired = 31,
+    /// InvalidDonationAmount = 32.
+    InvalidDonationAmount = 32,
+    /// CampaignAlreadyFunded = 33.
+    CampaignAlreadyFunded = 33,
+    /// EmergencyWithdrawalAlreadyRequested = 34.
+    EmergencyWithdrawalAlreadyRequested = 34,
+    /// EmergencyWithdrawalNotRequested = 35.
+    EmergencyWithdrawalNotRequested = 35,
+    /// EmergencyWithdrawalPeriodNotPassed = 36.
+    EmergencyWithdrawalPeriodNotPassed = 36,
+    /// InvalidToken = 37.
+    InvalidToken = 37,
+    /// InvalidFee = 38.
+    InvalidFee = 38,
+    /// InsufficientBalance = 39.
+    InsufficientBalance = 39,
+    /// RefundNotAvailable = 40.
+    RefundNotAvailable = 40,
+    /// PoolNotExpired = 41.
     PoolNotExpired = 41,
-    RefundGracePeriodNotPassed = 42,
-    ReentrancyLocked = 43,
-    EmergencyWithdrawalAlreadyRequested = 44,
-    EmergencyWithdrawalNotRequested = 45,
-    EmergencyWithdrawalPeriodNotPassed = 46,
-    InsufficientFees = 47,
-    PoolNotDisbursedOrRefunded = 48,
+    /// PoolAlreadyDisbursed = 42.
+    PoolAlreadyDisbursed = 42,
+    /// NoContributionToRefund = 43.
+    NoContributionToRefund = 43,
+    /// RefundGracePeriodNotPassed = 44.
+    RefundGracePeriodNotPassed = 44,
+    /// PoolAlreadyClosed = 45.
+    PoolAlreadyClosed = 45,
+    /// PoolNotDisbursedOrRefunded = 46.
+    PoolNotDisbursedOrRefunded = 46,
+    /// InvalidGoalUpdate = 47.
+    InvalidGoalUpdate = 47,
+    /// InsufficientFees = 48.
+    InsufficientFees = 48,
+    /// UserBlacklisted = 49.
+    UserBlacklisted = 49,
+    /// CampaignCancelled = 50.
+    CampaignCancelled = 50,
+    DeadlinePassed = 51,
+    VectorLimitExceeded = 52,
 }
 
+/// Documentation for this item.
+#[allow(missing_docs)]
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
-pub enum ValidationError {
-    ApplicationNotFound = 1,
-    ApplicationAlreadyProcessed = 2,
-    ApplicationAlreadyExists = 3,
-    PoolNotFound = 4,
-    Unauthorized = 5,
-}
-
-#[contracterror]
-#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
-#[repr(u32)]
+/// Defines the possible states or errors for secondcrowdfundingerror.
 pub enum SecondCrowdfundingError {
+    /// StringTooLong = 1.
     StringTooLong = 1,
+    /// EventNotFound = 2.
     EventNotFound = 2,
+    /// EventSoldOut = 3.
     EventSoldOut = 3,
+    /// EventExpired = 4.
     EventExpired = 4,
     InsufficientSponsorBalance = 5,
     ApplicationNotFound = 6,

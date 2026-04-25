@@ -30,7 +30,6 @@ fn create_private_pool(
     env: &Env,
     creator: &Address,
     token_address: &Address,
-            validator: admin.clone(),
 ) -> u64 {
     let config = PoolConfig {
         name: String::from_str(env, "Private Pool"),
@@ -41,7 +40,7 @@ fn create_private_pool(
         duration: 86400,
         created_at: env.ledger().timestamp(),
         token_address: token_address.clone(),
-            validator: admin.clone(),
+        validator: creator.clone(),
     };
     client.create_pool(creator, &config)
 }
@@ -51,7 +50,6 @@ fn create_public_pool(
     env: &Env,
     creator: &Address,
     token_address: &Address,
-            validator: admin.clone(),
 ) -> u64 {
     let config = PoolConfig {
         name: String::from_str(env, "Public Pool"),
@@ -62,7 +60,7 @@ fn create_public_pool(
         duration: 86400,
         created_at: env.ledger().timestamp(),
         token_address: token_address.clone(),
-            validator: admin.clone(),
+        validator: creator.clone(),
     };
     client.create_pool(creator, &config)
 }

@@ -3783,7 +3783,7 @@ fn test_update_pool_state_validator_authorization() {
         duration: 86400,
         created_at: env.ledger().timestamp(),
         token_address: token_contract.address(),
-            validator: admin.clone(),
+        validator: admin.clone(),
         validator: validator.clone(),
     };
 
@@ -3825,7 +3825,7 @@ fn test_update_pool_state_lock_mechanics() {
         duration: 86400,
         created_at: env.ledger().timestamp(),
         token_address: token_contract.address(),
-            validator: admin.clone(),
+        validator: admin.clone(),
         validator: creator.clone(),
     };
 
@@ -3877,7 +3877,7 @@ fn test_validator_malicious_modification_prevention() {
         duration: 86400,
         created_at: env.ledger().timestamp(),
         token_address: token_contract.address(),
-            validator: admin.clone(),
+        validator: admin.clone(),
         validator: validator1.clone(),
     };
     let pool_id1 = client.create_pool(&creator1, &config1);
@@ -3893,7 +3893,7 @@ fn test_validator_malicious_modification_prevention() {
         duration: 86400,
         created_at: env.ledger().timestamp(),
         token_address: token_contract.address(),
-            validator: admin.clone(),
+        validator: admin.clone(),
         validator: validator2.clone(),
     };
     let pool_id2 = client.create_pool(&creator2, &config2);
