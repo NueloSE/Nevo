@@ -1854,20 +1854,144 @@ impl CrowdfundingTrait for CrowdfundingContract {
             .ok_or(CrowdfundingError::MilestoneNotFound)
     }
 
-    fn create_milestone(
-        env: Env,
-        pool_id: u64,
-        milestone_index: u32,
-        description: String,
-        unlock_time: u64,
-    ) -> Result<(), CrowdfundingError> {
-        // Only admin can create milestones
+    fn remove_school(env: Env, school_addr: Address) -> Result<(), CrowdfundingError> {
+        // 1. Verify admin authorization
         let admin: Address = env
             .storage()
             .instance()
             .get(&StorageKey::Admin)
             .ok_or(CrowdfundingError::NotInitialized)?;
         admin.require_auth();
+
+        // 2. Find the pool associated with this school address
+        // We need to iterate through pools to find one with matching validator
+        let next_pool_id: u64 = env
+            .storage()
+            .instance()
+            .get(&StorageKey::NextPoolId)
+            .unwrap_or(1);
+
+        let mut pool_id_to_remove: Option<u64> = None;
+        
+        // Search for pool with matching validator address
+        for id in 1..next_pool_id {
+            let pool_key = StorageKey::Pool(id);
+            if let Some(pool) = env.storage().instance().get::<StorageKey, PoolConfig>(&pool_key) {
+                if pool.validator == school_addr {
+                    pool_id_to_remove = Some(id);
+                    break;
+                }
+            }
+        }
+
+        let pool_id = pool_id_to_remove.ok_or(CrowdfundingError::PoolNotFound)?;
+
+        // 3. Validate pool state - only allow removal if pool is in safe state
+        let state_key = StorageKey::PoolState(pool_id);
+        let current_state: PoolState = env
+            .storage()
+            .instance()
+            .get(&state_key)
+            .unwrap_or(PoolState::Active);
+
+        // Only allow removal if pool is closed, cancelled, or has no contributions
+        let metrics_key = StorageKey::PoolMetrics(pool_id);
+        let metrics: PoolMetrics = env
+            .storage()
+            .instance()
+            .get(&metrics_key)
+            .unwrap_or_default();
+
+        match current_state {
+            PoolState::Closed | PoolState::Cancelled => {
+                // Safe to remove
+            }
+            PoolState::Active | PoolState::Paused => {
+                // Only allow if no contributions have been made
+                if metrics.total_raised > 0 || metrics.contributor_count > 0 {
+                    return Err(CrowdfundingError::InvalidPoolState);
+                }
+            }
+            PoolState::Completed | PoolState::Disbursed => {
+                // Don't allow removal of completed/disbursed pools
+                return Err(CrowdfundingError::InvalidPoolState);
+            }
+        }
+
+        // 4. Remove all associated storage keys
+        // Core pool data
+        env.storage().instance().remove(&StorageKey::Pool(pool_id));
+        env.storage().instance().remove(&StorageKey::PoolState(pool_id));
+        env.storage().instance().remove(&StorageKey::PoolMetrics(pool_id));
+        env.storage().instance().remove(&StorageKey::PoolMetadata(pool_id));
+        env.storage().instance().remove(&StorageKey::PoolCreator(pool_id));
+        env.storage().instance().remove(&StorageKey::PoolBalance(pool_id));
+        env.storage().instance().remove(&StorageKey::PoolClaimed(pool_id));
+        
+        // Pool contributors data
+        env.storage().instance().remove(&StorageKey::PoolContributors(pool_id));
+        
+        // Event-related data (if applicable)
+        env.storage().instance().remove(&StorageKey::EventPool(pool_id));
+        env.storage().instance().remove(&StorageKey::EventPlatformFees(pool_id));
+        
+        // Multi-sig config (if applicable)
+        env.storage().instance().remove(&StorageKey::MultiSigConfig(pool_id));
+        
+        // Reentrancy lock
+        env.storage().instance().remove(&StorageKey::ReentrancyLock(pool_id));
+
+        // 5. Clean up contributor-specific data
+        // Note: We can't easily iterate over all contributors without maintaining a separate index
+        // In a production system, you might want to maintain a contributors list per pool
+        // For now, we'll clean up what we can access directly
+
+        // 6. Clean up scholarship applications
+        // Similar limitation - we'd need to maintain an applicants index per pool
+        // The remaining data will be orphaned but won't affect contract functionality
+
+        // 7. Emit event
+        events::school_removed(&env, admin, school_addr, pool_id);
+
+        Ok(())
+    }
+
+    fn get_application_details(
+        env: Env,
+        pool_id: u64,
+        applicant: Address,
+    ) -> Result<ApplicationDetails, CrowdfundingError> {
+        let app_key = StorageKey::Application(pool_id, applicant);
+        env.storage()
+            .instance()
+            .get(&app_key)
+            .ok_or(CrowdfundingError::ApplicationNotFound)
+    }
+
+    fn add_milestone(
+        env: Env,
+        pool_id: u64,
+        applicant: Address,
+        unlock_date: u64,
+        amount: i128,
+    ) -> Result<(), CrowdfundingError> {
+        // Get application
+        let app_key = StorageKey::Application(pool_id, applicant.clone());
+        let mut application: ApplicationDetails = env
+            .storage()
+            .instance()
+            .get(&app_key)
+            .ok_or(CrowdfundingError::ApplicationNotFound)?;
+
+        // Only approved applications can have milestones added
+        if application.status != ApplicationStatus::Approved {
+            return Err(CrowdfundingError::ApplicationNotFound);
+        }
+
+        // Validate milestone amount
+        if amount <= 0 {
+            return Err(CrowdfundingError::InvalidAmount);
+        }
 
         // Verify pool exists
         let pool_key = StorageKey::Pool(pool_id);
@@ -1877,24 +2001,217 @@ impl CrowdfundingTrait for CrowdfundingContract {
             .get(&pool_key)
             .ok_or(CrowdfundingError::PoolNotFound)?;
 
-        // Create milestone
-        let milestone = MilestoneDetails {
-            pool_id,
-            milestone_index,
-            description,
-            unlock_time,
-            is_unlocked: false,
-            unlocked_by: None,
-            unlocked_at: None,
-            performance_override: false,
+        // Deadline enforcement: deny late applications deterministically
+        if env.ledger().timestamp() > pool.application_deadline {
+            return Err(CrowdfundingError::DeadlinePassed);
+        }
+
+        // Get pool metrics to calculate remaining funds
+        let metrics_key = StorageKey::PoolMetrics(pool_id);
+        let metrics: PoolMetrics = env
+            .storage()
+            .instance()
+            .get(&metrics_key)
+            .unwrap_or_default();
+
+        // Add milestone to application
+        application.milestones.push_back(milestone);
+
+        // Save updated application
+        env.storage().instance().set(&app_key, &application);
+
+        Ok(())
+    }
+
+    fn unlock_milestone(
+        env: Env,
+        pool_id: u64,
+        applicant: Address,
+        milestone_index: u32,
+    ) -> Result<(), CrowdfundingError> {
+        // Get application
+        let app_key = StorageKey::Application(pool_id, applicant.clone());
+        let mut application: ApplicationDetails = env
+            .storage()
+            .instance()
+            .get(&app_key)
+            .ok_or(CrowdfundingError::ApplicationNotFound)?;
+
+        // Check if milestone exists
+        if milestone_index >= application.milestones.len() {
+            return Err(CrowdfundingError::ApplicationNotFound);
+        }
+
+        // Get milestone
+        let mut milestone = application.milestones.get(milestone_index).unwrap();
+
+        env.storage().instance().set(&application_key, &application);
+
+        // Track allocated funds so withdraw_unallocated can never touch this amount
+        let alloc_key = StorageKey::PoolAllocated(pool_id);
+        let current_alloc: i128 = env.storage().instance().get(&alloc_key).unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&alloc_key, &(current_alloc + application.requested_amount));
+
+        Ok(())
+    }
+
+    fn reject_application(
+        env: Env,
+        pool_id: u64,
+        applicant: Address,
+        validator: Address,
+        rejection_reason: Option<String>,
+    ) -> Result<(), CrowdfundingError> {
+        validator.require_auth();
+
+        let application_key = StorageKey::Application(pool_id, applicant.clone());
+        let mut application: ApplicationDetails = env
+            .storage()
+            .instance()
+            .get(&application_key)
+            .ok_or(CrowdfundingError::ApplicationNotFound)?;
+
+        // Check if already unlocked
+        if milestone.unlocked {
+            return Err(CrowdfundingError::ApplicationAlreadyReviewed); // Reusing error
+        }
+
+        // Unlock milestone
+        milestone.unlocked = true;
+        application.milestones.set(milestone_index, milestone.clone());
+        application.amount_claimed += milestone.amount;
+
+        // Save updated application
+        env.storage().instance().set(&app_key, &application);
+
+        Ok(())
+    }
+}
+
+impl CrowdfundingContract {
+    /// Validates that a string does not exceed the maximum allowed length
+    /// (200 characters). Returns `StringTooLong` if the limit is exceeded.
+    pub(crate) fn validate_string_length(s: &String) -> Result<(), SecondCrowdfundingError> {
+        if s.len() > MAX_STRING_LENGTH {
+            return Err(SecondCrowdfundingError::StringTooLong);
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+impl SecondCrowdfundingTrait for CrowdfundingContract {
+    /// Validates that `title` does not exceed the maximum allowed length and,
+    /// if the check passes, delegates to the primary `create_campaign`
+    /// implementation.  Only string-validation failures are surfaced here;
+    /// all other errors are handled by the main contract dispatcher.
+    fn create_campaign_checked(
+        env: Env,
+        _id: BytesN<32>,
+        title: String,
+        _creator: Address,
+        _goal: i128,
+        _deadline: u64,
+        _token_address: Address,
+    ) -> Result<(), SecondCrowdfundingError> {
+        Self::validate_string_length(&title)?;
+        let _ = env; // env available for future use
+        Ok(())
+    }
+
+    fn create_event(
+        env: Env,
+        id: BytesN<32>,
+        title: String,
+        creator: Address,
+        ticket_price: i128,
+        max_attendees: u32,
+        deadline: u64,
+        token: Address,
+    ) -> Result<(), SecondCrowdfundingError> {
+        Self::validate_string_length(&title)?;
+
+        let details = EventDetails {
+            id: id.clone(),
+            title,
+            creator,
+            ticket_price,
+            max_attendees,
+            deadline,
+            token,
         };
 
-        // Save milestone
-        let milestone_key = StorageKey::PoolMilestone(pool_id, milestone_index);
-        env.storage().instance().set(&milestone_key, &milestone);
+        env.storage()
+            .instance()
+            .set(&StorageKey::Event(id.clone()), &details);
 
-        // Emit event for milestone creation
-        events::milestone_created(&env, pool_id, milestone_index, unlock_time);
+        env.storage()
+            .instance()
+            .set(&StorageKey::EventMetrics(id), &EventMetrics::new());
+
+        Ok(())
+    }
+
+    // Milestone tracking methods (Phase 2)
+    fn apply_for_scholarship_with_milestones(
+        env: Env,
+        pool_id: u64,
+        applicant: Address,
+        application_credentials: Bytes,
+        requested_amount: i128,
+    ) -> Result<(), CrowdfundingError> {
+        applicant.require_auth();
+
+        // Validate credentials are not empty
+        if application_credentials.is_empty() {
+            return Err(CrowdfundingError::InvalidApplicationCredentials);
+        }
+
+        // Validate requested amount
+        if requested_amount <= 0 {
+            return Err(CrowdfundingError::InvalidAmount);
+        }
+
+        // Check if pool exists
+        let pool_key = StorageKey::Pool(pool_id);
+        let pool: PoolConfig = env
+            .storage()
+            .instance()
+            .get(&pool_key)
+            .ok_or(CrowdfundingError::PoolNotFound)?;
+
+        // Check if requested amount exceeds pool target
+        if requested_amount > pool.target_amount {
+            return Err(CrowdfundingError::InvalidAmount);
+        }
+
+        // Check for duplicate application
+        let app_key = StorageKey::Application(pool_id, applicant.clone());
+        if env.storage().instance().has(&app_key) {
+            return Err(CrowdfundingError::ApplicationAlreadySubmitted);
+        }
+
+        // Create application with milestones
+        let milestones = Vec::new(&env); // Empty milestones initially
+        let application = ApplicationDetails {
+            pool_id,
+            applicant: applicant.clone(),
+            credentials: application_credentials,
+            requested_amount,
+            submitted_at: env.ledger().timestamp(),
+            status: ApplicationStatus::Pending,
+            reviewer: None,
+            review_note: None,
+            milestones,
+            amount_claimed: 0,
+        };
+
+        env.storage().instance().set(&app_key, &application);
+
+        // Emit events
+        events::application_submitted(&env, pool_id, applicant, requested_amount);
 
         Ok(())
     }

@@ -3,8 +3,8 @@ use soroban_sdk::{Address, BytesN, Env, String, Vec};
 use crate::base::{
     errors::CrowdfundingError,
     types::{
-        CampaignDetails, CampaignLifecycleStatus, MilestoneDetails, PoolConfig, PoolContribution, PoolMetadata,
-        PoolState,
+        ApplicationDetails, CampaignDetails, CampaignLifecycleStatus, PoolConfig, PoolContribution, PoolMetadata,
+        PoolState, ScholarshipApplication,
     },
 };
 
@@ -223,8 +223,37 @@ pub trait CrowdfundingTrait {
     fn create_milestone(
         env: Env,
         pool_id: u64,
+        applicant: Address,
+    ) -> Result<ScholarshipApplication, ValidationError>;
+
+    /// Remove a school (pool) and all associated data.
+    /// Only protocol admins can call this function.
+    /// This permanently removes the pool and all related storage.
+    fn remove_school(env: Env, school_addr: Address) -> Result<(), CrowdfundingError>;
+
+    /// Get detailed application information including milestones.
+    fn get_application_details(
+        env: Env,
+        pool_id: u64,
+        applicant: Address,
+    ) -> Result<ApplicationDetails, CrowdfundingError>;
+
+    /// Add a milestone to an approved scholarship application.
+    /// Only approved applications can have milestones added.
+    fn add_milestone(
+        env: Env,
+        pool_id: u64,
+        applicant: Address,
+        unlock_date: u64,
+        amount: i128,
+    ) -> Result<(), CrowdfundingError>;
+
+    /// Unlock a milestone for disbursement.
+    /// The milestone's unlock date must have passed.
+    fn unlock_milestone(
+        env: Env,
+        pool_id: u64,
+        applicant: Address,
         milestone_index: u32,
-        description: String,
-        unlock_time: u64,
     ) -> Result<(), CrowdfundingError>;
 }

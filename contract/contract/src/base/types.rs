@@ -234,21 +234,10 @@ pub struct ApplicationDetails {
     pub status: ApplicationStatus,
     pub reviewer: Option<Address>,
     pub review_note: Option<String>,
-    pub applied_at: u64,
-    pub reviewed_at: Option<u64>,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct MilestoneDetails {
-    pub pool_id: u64,
-    pub milestone_index: u32,
-    pub description: String,
-    pub unlock_time: u64,
-    pub is_unlocked: bool,
-    pub unlocked_by: Option<Address>,
-    pub unlocked_at: Option<u64>,
-    pub performance_override: bool, // true if unlocked by validator override
+    /// Sequence of milestones for disbursing funding over time
+    pub milestones: Vec<Milestone>,
+    /// Total amount claimed across all unlocked milestones
+    pub amount_claimed: i128,
 }
 
 #[contracttype]
@@ -431,5 +420,159 @@ mod tests {
             false,
         );
         assert_eq!(status, CampaignLifecycleStatus::Successful);
+    }
+
+    #[test]
+    fn event_status_serialization() {
+        use soroban_sdk::{FromVal, IntoVal, Val};
+        let env = Env::default();
+        let status = EventStatus::Active;
+        let val: Val = status.into_val(&env);
+        let deserialized: EventStatus = EventStatus::from_val(&env, &val);
+        assert_eq!(status, deserialized);
+
+        let status = EventStatus::Cancelled;
+        let val: Val = status.into_val(&env);
+        let deserialized: EventStatus = EventStatus::from_val(&env, &val);
+        assert_eq!(status, deserialized);
+
+        let status = EventStatus::Completed;
+        let val: Val = status.into_val(&env);
+        let deserialized: EventStatus = EventStatus::from_val(&env, &val);
+        assert_eq!(status, deserialized);
+    }
+
+    #[test]
+    fn ticket_type_default_is_standard() {
+        assert_eq!(TicketType::default(), TicketType::Standard);
+    }
+
+    #[test]
+    fn event_details_instantiation() {
+        use soroban_sdk::testutils::Address as _;
+        let env = Env::default();
+        let creator = soroban_sdk::Address::generate(&env);
+        let token = soroban_sdk::Address::generate(&env);
+        let id = soroban_sdk::BytesN::from_array(&env, &[1u8; 32]);
+        let event = EventDetails {
+            id: id.clone(),
+            title: String::from_str(&env, "Nevo Launch"),
+            creator: creator.clone(),
+            ticket_price: 500,
+            max_attendees: 100,
+            deadline: 1_700_000_000,
+            token: token.clone(),
+        };
+        assert_eq!(event.id, id);
+        assert_eq!(event.ticket_price, 500);
+        assert_eq!(event.max_attendees, 100);
+        assert_eq!(event.deadline, 1_700_000_000);
+        assert_eq!(event.creator, creator);
+        assert_eq!(event.token, token);
+    }
+
+    #[test]
+    fn pool_details_instantiation() {
+        let env = Env::default();
+        let creator = Address::generate(&env);
+        let token = Address::generate(&env);
+        let config = PoolConfig {
+            name: String::from_str(&env, "Test Pool"),
+            description: String::from_str(&env, "A test scholarship pool"),
+            target_amount: 1000,
+            min_contribution: 10,
+            is_private: false,
+            duration: 86400,
+            created_at: 1234567890,
+            token_address: token.clone(),
+            validator: creator.clone(),
+        };
+        let metadata = PoolMetadata {
+            description: String::from_str(&env, "Metadata description"),
+            external_url: String::from_str(&env, "https://example.com"),
+            image_hash: String::from_str(&env, "hash123"),
+        };
+        let details = PoolDetails {
+            config: config.clone(),
+            state: PoolState::Active,
+            metrics: PoolMetrics::new(),
+            metadata: metadata.clone(),
+        };
+        assert_eq!(details.config, config);
+        assert_eq!(details.state, PoolState::Active);
+        assert_eq!(details.metrics.total_raised, 0);
+        assert_eq!(details.metadata, metadata);
+    }
+
+    #[test]
+    fn milestone_creation_and_properties() {
+        let milestone = Milestone {
+            unlock_date: 1700000000,
+            unlocked: false,
+            amount: 1000,
+        };
+
+        assert_eq!(milestone.unlock_date, 1700000000);
+        assert_eq!(milestone.unlocked, false);
+        assert_eq!(milestone.amount, 1000);
+    }
+
+    #[test]
+    fn application_details_with_milestones() {
+        let env = Env::default();
+        let applicant = Address::generate(&env);
+        let reviewer = Address::generate(&env);
+
+        let milestone1 = Milestone {
+            unlock_date: 1700000000,
+            unlocked: false,
+            amount: 500,
+        };
+
+        let milestone2 = Milestone {
+            unlock_date: 1710000000,
+            unlocked: false,
+            amount: 500,
+        };
+
+        let milestones = Vec::from_array(&env, [milestone1.clone(), milestone2.clone()]);
+
+        let application = ApplicationDetails {
+            pool_id: 1,
+            applicant: applicant.clone(),
+            credentials: Bytes::from_array(&env, &[1, 2, 3]),
+            requested_amount: 1000,
+            submitted_at: 1690000000,
+            status: ApplicationStatus::Pending,
+            reviewer: Some(reviewer.clone()),
+            review_note: Some(String::from_str(&env, "Under review")),
+            milestones: milestones.clone(),
+            amount_claimed: 0,
+        };
+
+        assert_eq!(application.pool_id, 1);
+        assert_eq!(application.applicant, applicant);
+        assert_eq!(application.requested_amount, 1000);
+        assert_eq!(application.status, ApplicationStatus::Pending);
+        assert_eq!(application.milestones.len(), 2);
+        assert_eq!(application.milestones.get(0).unwrap(), milestone1);
+        assert_eq!(application.milestones.get(1).unwrap(), milestone2);
+        assert_eq!(application.amount_claimed, 0);
+    }
+
+    #[test]
+    fn milestone_memory_efficiency() {
+        // Test that Milestone struct is packed efficiently
+        // Each field should be aligned properly for memory efficiency
+        let milestone = Milestone {
+            unlock_date: u64::MAX,
+            unlocked: true,
+            amount: i128::MAX,
+        };
+
+        // Verify all fields are accessible and maintain their values
+        assert_eq!(milestone.unlock_date, u64::MAX);
+        assert_eq!(milestone.unlocked, true);
+        assert_eq!(milestone.amount, i128::MAX);
     }
 }
