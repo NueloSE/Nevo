@@ -23,13 +23,21 @@ fn setup_test(env: &Env) -> (CrowdfundingContractClient<'_>, Address, Address) {
 
     client.initialize(&admin, &token_address, &0);
 
+    // Register admin as a default validator for tests
+    client.register_school(
+        &admin,
+        &String::from_str(env, "Test University"),
+        &String::from_str(env, "US"),
+        &String::from_str(env, "ACC-001"),
+    );
+
     (client, admin, token_address)
 }
 
 #[test]
 fn test_pool_remaining_time_future() {
     let env = Env::default();
-    let (client, _, token_address) = setup_test(&env);
+    let (client, admin, token_address) = setup_test(&env);
 
     // Pin the clock to a known value
     env.ledger().set_timestamp(1_000_000);
@@ -42,10 +50,12 @@ fn test_pool_remaining_time_future() {
         min_contribution: 0,
         is_private: false,
         token_address: token_address.clone(),
-        validator: admin.clone(),
+        validator: creator.clone(),
         duration: 500,
         created_at: env.ledger().timestamp(),
         validator: creator.clone(),
+        application_deadline: env.ledger().timestamp(),
+        milestones: soroban_sdk::Vec::new(&env),
     };
 
     let pool_id = client.create_pool(&creator, &config);
@@ -57,7 +67,7 @@ fn test_pool_remaining_time_future() {
 #[test]
 fn test_pool_remaining_time_expired_returns_zero() {
     let env = Env::default();
-    let (client, _, token_address) = setup_test(&env);
+    let (client, admin, token_address) = setup_test(&env);
 
     env.ledger().set_timestamp(1_000_000);
 
@@ -69,10 +79,12 @@ fn test_pool_remaining_time_expired_returns_zero() {
         min_contribution: 0,
         is_private: false,
         token_address: token_address.clone(),
-        validator: admin.clone(),
+        validator: creator.clone(),
         duration: 100,
         created_at: env.ledger().timestamp(),
         validator: creator.clone(),
+        application_deadline: env.ledger().timestamp(),
+        milestones: soroban_sdk::Vec::new(&env),
     };
 
     let pool_id = client.create_pool(&creator, &config);

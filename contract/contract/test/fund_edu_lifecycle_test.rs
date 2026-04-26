@@ -49,6 +49,14 @@ fn test_fund_edu_lifecycle() {
     // Initialize the CrowdfundingContract
     client.initialize(&admin, &token_address, &0i128);
 
+    // Register admin as validator
+    client.register_school(
+        &admin,
+        &String::from_str(&env, "Test University"),
+        &String::from_str(&env, "US"),
+        &String::from_str(&env, "ACC-001"),
+    );
+
     // Give the sponsor some funds to start
     let deposit_amount = 50_000_000i128; // 50 USDC for example
     token_admin_client.mint(&sponsor, &deposit_amount);
@@ -67,6 +75,8 @@ fn test_fund_edu_lifecycle() {
         created_at: env.ledger().timestamp(),
         token_address: token_address.clone(),
         validator: admin.clone(),
+        application_deadline: env.ledger().timestamp(),
+        milestones: soroban_sdk::Vec::new(&env),
     };
 
     let pool_id = client.create_pool(&sponsor, &config);

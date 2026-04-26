@@ -1,8 +1,9 @@
-use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String, Vec};
+use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
 
 use crate::base::{
     errors::{CrowdfundingError, ValidationError},
     types::{
+        CampaignDetails, CampaignLifecycleStatus, PoolConfig, PoolContribution, PoolMetadata,
         ApplicationDetails, CampaignDetails, CampaignLifecycleStatus, PoolConfig, PoolContribution, PoolMetadata,
         PoolState, ScholarshipApplication,
     },
@@ -253,6 +254,10 @@ impl CrowdfundingTrait for FundEduContract {
         CrowdfundingContract::is_paused(env)
     }
 
+    fn pause_pool(env: Env, pool_id: u64, sponsor: Address) -> Result<(), CrowdfundingError> {
+        CrowdfundingContract::pause_pool(env, pool_id, sponsor)
+    }
+
     fn unpause_pool(env: Env, pool_id: u64, caller: Address) -> Result<(), CrowdfundingError> {
         CrowdfundingContract::unpause_pool(env, pool_id, caller)
     }
@@ -395,5 +400,50 @@ impl CrowdfundingTrait for FundEduContract {
 
     fn list_active_pools(env: Env) -> Vec<u64> {
         CrowdfundingContract::list_active_pools(env)
+    fn register_school(
+        env: Env,
+        school: Address,
+        name: String,
+        country: String,
+        accreditation_id: String,
+    ) -> Result<(), CrowdfundingError> {
+        CrowdfundingContract::register_school(env, school, name, country, accreditation_id)
+    }
+
+    fn is_validator_registered(env: Env, validator: Address) -> bool {
+        CrowdfundingContract::is_validator_registered(env, validator)
+    }
+
+    fn apply_for_scholarship(
+        env: Env,
+        pool_id: u64,
+        applicant: Address,
+    ) -> Result<(), ValidationError> {
+        CrowdfundingContract::apply_for_scholarship(env, pool_id, applicant)
+    }
+
+    fn approve_application(
+        env: Env,
+        pool_id: u32,
+        student: Address,
+    ) -> Result<(), ValidationError> {
+        CrowdfundingContract::approve_application(env, pool_id, student)
+    }
+
+    fn reject_application(
+        env: Env,
+        pool_id: u64,
+        applicant: Address,
+        validator: Address,
+    ) -> Result<(), ValidationError> {
+        CrowdfundingContract::reject_application(env, pool_id, applicant, validator)
+    }
+
+    fn get_application(
+        env: Env,
+        pool_id: u64,
+        applicant: Address,
+    ) -> Result<ScholarshipApplication, ValidationError> {
+        CrowdfundingContract::get_application(env, pool_id, applicant)
     }
 }

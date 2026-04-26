@@ -26,6 +26,14 @@ fn setup_test(env: &Env) -> (CrowdfundingContractClient<'_>, Address, Address) {
 
     client.initialize(&admin, &token_id, &0);
 
+    // Register admin as a default validator for tests
+    client.register_school(
+        &admin,
+        &String::from_str(env, "Test University"),
+        &String::from_str(env, "US"),
+        &String::from_str(env, "ACC-001"),
+    );
+
     (client, admin, token_id)
 }
 
@@ -43,6 +51,8 @@ fn make_pool(env: &Env, client: &CrowdfundingContractClient<'_>, admin: &Address
         created_at: 1_000,
         token_address: token_id.clone(),
         validator: admin.clone(),
+        application_deadline: env.ledger().timestamp(),
+        milestones: soroban_sdk::Vec::new(&env),
     };
 
     client.create_pool(admin, &config)

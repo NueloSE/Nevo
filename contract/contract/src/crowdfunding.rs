@@ -1,31 +1,34 @@
 #![allow(deprecated)]
-use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
+use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String, Vec};
 
-use crate::base::errors::SecondCrowdfundingError;
-#[cfg(test)]
-use crate::base::types::{EventDetails, EventMetrics};
 use crate::base::{
-    errors::{CrowdfundingError, SecondCrowdfundingError, ValidationError},
+    errors::CrowdfundingError,
     events,
     reentrancy::{
         acquire_emergency_lock, reentrancy_lock_logic, release_emergency_lock, release_pool_lock,
     },
     types::{
+        ApplicationDetails, ApplicationStatus, CampaignDetails, CampaignLifecycleStatus,
+        CampaignMetrics, Contribution, EmergencyWithdrawal, EventDetails, EventMetrics,
+        MultiSigConfig, PoolConfig, PoolContribution, PoolMetadata, PoolMetrics, PoolState,
+        ScholarshipApplication, SchoolRegistry, StorageKey, MAX_DESCRIPTION_LENGTH, MAX_HASH_LENGTH,
+        MAX_SINGLE_OP_ITEMS, MAX_STRING_LENGTH, MAX_URL_LENGTH,
         ApplicationStatus, CampaignDetails, CampaignLifecycleStatus, CampaignMetrics, Contribution,
         EmergencyWithdrawal, EventDetails, EventMetrics, MultiSigConfig, PoolConfig,
         PoolContribution, PoolMetadata, PoolMetrics, PoolState, ScholarshipApplication, StorageKey,
         MAX_DESCRIPTION_LENGTH, MAX_HASH_LENGTH, MAX_SINGLE_OP_ITEMS, MAX_STRING_LENGTH,
+        EmergencyWithdrawal, EventDetails, EventMetrics, Milestone, MilestoneStatus, MultiSigConfig,
+        PoolConfig, PoolContribution, PoolMetadata, PoolMetrics, PoolState, ScholarshipApplication,
+        StorageKey, MAX_DESCRIPTION_LENGTH, MAX_HASH_LENGTH, MAX_SINGLE_OP_ITEMS, MAX_STRING_LENGTH,
+        CampaignDetails, CampaignLifecycleStatus, CampaignMetrics, Contribution,
+        EmergencyWithdrawal, MilestoneDetails, MultiSigConfig, PoolConfig, PoolContribution, PoolMetadata,
+        PoolMetrics, PoolState, StorageKey, MAX_DESCRIPTION_LENGTH, MAX_HASH_LENGTH,
         MAX_URL_LENGTH,
     },
 };
 use crate::interfaces::crowdfunding::CrowdfundingTrait;
-#[cfg(test)]
-use crate::interfaces::second_crowdfunding::SecondCrowdfundingTrait;
 
-/// Documentation for this item.
-#[allow(missing_docs)]
 #[contract]
-/// Represents a crowdfundingcontract.
 pub struct CrowdfundingContract;
 
 // Internal helper functions
@@ -103,8 +106,6 @@ impl CrowdfundingContract {
     }
 }
 
-/// Documentation for this item.
-#[allow(missing_docs)]
 #[contractimpl]
 #[allow(clippy::too_many_arguments)]
 impl CrowdfundingTrait for CrowdfundingContract {
@@ -139,7 +140,6 @@ impl CrowdfundingTrait for CrowdfundingContract {
         if title.is_empty() {
             return Err(CrowdfundingError::InvalidTitle);
         }
-        Self::validate_string_length(&title).map_err(|_| CrowdfundingError::InvalidTitle)?;
 
         if goal <= 0 {
             return Err(CrowdfundingError::InvalidGoal);
@@ -212,9 +212,6 @@ impl CrowdfundingTrait for CrowdfundingContract {
             .instance()
             .get(&StorageKey::AllCampaigns)
             .unwrap_or(Vec::new(&env));
-        if all_campaigns.len() >= MAX_SINGLE_OP_ITEMS {
-            return Err(CrowdfundingError::VectorLimitExceeded);
-        }
         all_campaigns.push_back(id.clone());
         env.storage()
             .instance()
@@ -270,124 +267,6 @@ impl CrowdfundingTrait for CrowdfundingContract {
             .instance()
             .get(&StorageKey::CreationFee)
             .unwrap_or(0))
-    }
-
-    fn set_platform_fee_bps(env: Env, fee_bps: u32) -> Result<(), CrowdfundingError> {
-        let admin: Address = env
-            .storage()
-            .instance()
-            .get(&StorageKey::Admin)
-            .ok_or(CrowdfundingError::NotInitialized)?;
-        admin.require_auth();
-
-        if fee_bps > 10_000 {
-            return Err(CrowdfundingError::InvalidFee);
-        }
-
-        env.storage()
-            .instance()
-            .set(&StorageKey::PlatformFeeBps, &fee_bps);
-        events::platform_fee_bps_set(&env, admin, fee_bps);
-        Ok(())
-    }
-
-    fn get_platform_fee_bps(env: Env) -> Result<u32, CrowdfundingError> {
-        Ok(env
-            .storage()
-            .instance()
-            .get(&StorageKey::PlatformFeeBps)
-            .unwrap_or(0))
-    }
-
-    fn buy_ticket(
-        env: Env,
-        pool_id: u64,
-        buyer: Address,
-        asset: Address,
-        price: i128,
-    ) -> Result<(i128, i128), CrowdfundingError> {
-        // Ensure contract is initialised
-        if !env.storage().instance().has(&StorageKey::Admin) {
-            return Err(CrowdfundingError::NotInitialized);
-        }
-
-        // Validate price
-        if price <= 0 {
-            return Err(CrowdfundingError::InvalidAmount);
-        }
-
-        // Pool must exist
-        let pool_key = StorageKey::Pool(pool_id);
-        if !env.storage().instance().has(&pool_key) {
-            return Err(CrowdfundingError::PoolNotFound);
-        }
-
-        // Pool must be Active
-        let state_key = StorageKey::PoolState(pool_id);
-        let state: PoolState = env
-            .storage()
-            .instance()
-            .get(&state_key)
-            .unwrap_or(PoolState::Active);
-        if state != PoolState::Active {
-            return Err(CrowdfundingError::InvalidPoolState);
-        }
-
-        // Verify asset matches the contract token
-        let token_key = StorageKey::CrowdfundingToken;
-        let contract_token: Address = env
-            .storage()
-            .instance()
-            .get(&token_key)
-            .ok_or(CrowdfundingError::NotInitialized)?;
-        if asset != contract_token {
-            return Err(CrowdfundingError::InvalidToken);
-        }
-
-        buyer.require_auth();
-
-        // ── fee split ────────────────────────────────────────────────────────
-        let fee_bps: u32 = env
-            .storage()
-            .instance()
-            .get(&StorageKey::PlatformFeeBps)
-            .unwrap_or(0);
-
-        let fee_amount = Self::calculate_platform_fee(price, fee_bps);
-        let event_amount = price - fee_amount;
-
-        // Transfer full price from buyer to contract
-        use soroban_sdk::token;
-        let token_client = token::Client::new(&env, &asset);
-        token_client.transfer(&buyer, env.current_contract_address(), &price);
-
-        // Credit event pool
-        let event_pool_key = StorageKey::EventPool(pool_id);
-        let current_event: i128 = env.storage().instance().get(&event_pool_key).unwrap_or(0);
-        env.storage()
-            .instance()
-            .set(&event_pool_key, &(current_event + event_amount));
-
-        // Credit platform fee pool
-        let event_fee_key = StorageKey::EventPlatformFees(pool_id);
-        let current_fees: i128 = env.storage().instance().get(&event_fee_key).unwrap_or(0);
-        env.storage()
-            .instance()
-            .set(&event_fee_key, &(current_fees + fee_amount));
-
-        let event_fee_treasury_key = StorageKey::EventFeeTreasury;
-        let current_event_fee_treasury: i128 = env
-            .storage()
-            .instance()
-            .get(&event_fee_treasury_key)
-            .unwrap_or(0);
-        env.storage().instance().set(
-            &event_fee_treasury_key,
-            &(current_event_fee_treasury + fee_amount),
-        );
-
-        events::ticket_sold(&env, pool_id, buyer, price, event_amount, fee_amount);
-        Ok((event_amount, fee_amount))
     }
 
     fn get_global_raised_total(env: Env) -> i128 {
@@ -855,76 +734,7 @@ impl CrowdfundingTrait for CrowdfundingContract {
         Ok(())
     }
 
-    fn claim_campaign_funds(env: Env, campaign_id: BytesN<32>) -> Result<(), CrowdfundingError> {
-        if Self::is_paused(env.clone()) {
-            return Err(CrowdfundingError::ContractPaused);
-        }
-
-        let campaign = Self::get_campaign(env.clone(), campaign_id.clone())?;
-        campaign.creator.require_auth();
-
-        let claimed_key = StorageKey::CampaignClaimed(campaign_id.clone());
-        if env.storage().instance().has(&claimed_key) {
-            return Err(CrowdfundingError::CampaignAlreadyFunded);
-        }
-
-        if campaign.total_raised < campaign.goal {
-            return Err(CrowdfundingError::CampaignExpired);
-        }
-
-        let fee_history_key = StorageKey::CampaignFeeHistory(campaign_id.clone());
-        let total_fee: i128 = env
-            .storage()
-            .persistent()
-            .get(&fee_history_key)
-            .unwrap_or(0);
-        let amount_to_creator = campaign.total_raised - total_fee;
-
-        if amount_to_creator > 0 {
-            use soroban_sdk::token;
-            let token_client = token::Client::new(&env, &campaign.token_address);
-            token_client.transfer(
-                &env.current_contract_address(),
-                &campaign.creator,
-                &amount_to_creator,
-            );
-        }
-
-        if total_fee > 0 {
-            let platform_fees_key = StorageKey::PlatformFees;
-            let current_fees: i128 = env
-                .storage()
-                .instance()
-                .get(&platform_fees_key)
-                .unwrap_or(0);
-            env.storage()
-                .instance()
-                .set(&platform_fees_key, &(current_fees + total_fee));
-        }
-
-        env.storage().instance().set(&claimed_key, &true);
-
-        Ok(())
-    }
-
-    fn batch_claim_campaign_funds(
-        env: Env,
-        campaign_ids: Vec<BytesN<32>>,
-    ) -> Vec<Result<(), CrowdfundingError>> {
-        if campaign_ids.len() > MAX_SINGLE_OP_ITEMS {
-            return Vec::new(&env);
-        }
-        let mut results = Vec::new(&env);
-        for id in campaign_ids.iter() {
-            results.push_back(Self::claim_campaign_funds(env.clone(), id.clone()));
-        }
-        results
-    }
-
     fn get_campaigns(env: Env, ids: Vec<BytesN<32>>) -> Vec<CampaignDetails> {
-        if ids.len() > MAX_SINGLE_OP_ITEMS {
-            return Vec::new(&env);
-        }
         let mut results = Vec::new(&env);
         for id in ids.iter() {
             let campaign_key = (id,);
@@ -951,6 +761,11 @@ impl CrowdfundingTrait for CrowdfundingContract {
 
         // Validate config
         config.validate();
+
+        // Enforce that the designated validator is a registered school.
+        if !crate::interfaces::registry::is_validator_registered(&env, &config.validator) {
+            return Err(CrowdfundingError::UnrecognizedValidator);
+        }
 
         // Evaluate and charge creation fee
         let fee_key = StorageKey::CreationFee;
@@ -995,6 +810,8 @@ impl CrowdfundingTrait for CrowdfundingContract {
         if config.token_address != platform_token {
             return Err(CrowdfundingError::InvalidToken);
         }
+        // Extra validation (if any, e.g. duration checks not covered by validate)
+        // For now relying on PoolConfig::validate
 
         // Generate unique pool ID
         let next_id_key = StorageKey::NextPoolId;
@@ -1009,6 +826,14 @@ impl CrowdfundingTrait for CrowdfundingContract {
 
         // Store config
         env.storage().instance().set(&pool_key, &config);
+
+        // If milestones are provided, persist them under the dedicated key so
+        // claim_pool_funds can read and mutate them independently.
+        if !config.milestones.is_empty() {
+            env.storage()
+                .instance()
+                .set(&StorageKey::PoolMilestones(pool_id), &config.milestones);
+        }
 
         // Store pool creator
         let creator_key = StorageKey::PoolCreator(pool_id);
@@ -1027,57 +852,17 @@ impl CrowdfundingTrait for CrowdfundingContract {
         // Update ID counter
         env.storage().instance().set(&next_id_key, &new_next_id);
 
-        // ── Token deposit: transfer target_amount from sponsor to contract ──
-        // Check sponsor balance before attempting transfer so we revert cleanly.
-        use soroban_sdk::token;
-        let token_client = token::Client::new(&env, &config.token_address);
-        let sponsor_balance = token_client.balance(&creator);
-        if sponsor_balance < config.target_amount {
-            return Err(CrowdfundingError::InsufficientSponsorBalance);
-        }
-        token_client.transfer(
-            &creator,
-            &env.current_contract_address(),
-            &config.target_amount,
-        );
-
-        // Record the locked balance for this pool
-        env.storage()
-            .instance()
-            .set(&StorageKey::PoolBalance(pool_id), &config.target_amount);
-
-        // Reflect the deposit in pool metrics so total_raised starts at target_amount
-        let mut metrics: PoolMetrics = env
-            .storage()
-            .instance()
-            .get(&metrics_key)
-            .unwrap_or_default();
-        metrics.total_raised = config.target_amount;
-        env.storage().instance().set(&metrics_key, &metrics);
-        // ────────────────────────────────────────────────────────────────────
-
         // Emit event
         // Calculate deadline from creation time and duration for the event
         let deadline = config.created_at + config.duration;
         events::pool_created(
             &env,
             pool_id,
-            creator.clone(),
-            (
-                config.name.clone(),
-                config.description.clone(),
-                config.target_amount,
-                config.min_contribution,
-                deadline,
-            ),
-        );
-
-        events::event_created(
-            &env,
-            pool_id,
             config.name,
+            config.description,
             creator,
             config.target_amount,
+            config.min_contribution,
             deadline,
         );
 
@@ -1106,7 +891,6 @@ impl CrowdfundingTrait for CrowdfundingContract {
         if name.is_empty() {
             return Err(CrowdfundingError::InvalidPoolName);
         }
-        Self::validate_string_length(&name).map_err(|_| CrowdfundingError::InvalidPoolName)?;
 
         if target_amount <= 0 {
             return Err(CrowdfundingError::InvalidPoolTarget);
@@ -1127,9 +911,6 @@ impl CrowdfundingTrait for CrowdfundingContract {
         // Validate multi-sig configuration if provided
         let multi_sig_config = match (required_signatures, signers) {
             (Some(req_sigs), Some(signer_list)) => {
-                if signer_list.len() > MAX_SINGLE_OP_ITEMS {
-                    return Err(CrowdfundingError::VectorLimitExceeded);
-                }
                 let signer_count = signer_list.len();
                 if req_sigs == 0 || req_sigs > signer_count {
                     return Err(CrowdfundingError::InvalidMultiSigConfig);
@@ -1161,13 +942,6 @@ impl CrowdfundingTrait for CrowdfundingContract {
         let now = env.ledger().timestamp();
         let duration = deadline.saturating_sub(now);
 
-        // Get the platform token for the pool config
-        let platform_token: Address = env
-            .storage()
-            .instance()
-            .get(&StorageKey::CrowdfundingToken)
-            .unwrap_or(creator.clone());
-
         // Create pool configuration (persistent view)
         let pool_config = PoolConfig {
             name: name.clone(),
@@ -1177,9 +951,9 @@ impl CrowdfundingTrait for CrowdfundingContract {
             is_private: false,
             duration,
             created_at: now,
-            application_deadline: deadline,
             token_address: platform_token,
             validator: creator.clone(),
+            milestones: soroban_sdk::Vec::new(&env),
         };
 
         // Store pool configuration
@@ -1211,14 +985,12 @@ impl CrowdfundingTrait for CrowdfundingContract {
         events::pool_created(
             &env,
             pool_id,
+            name,
+            metadata.description.clone(),
             creator,
-            (
-                name,
-                metadata.description.clone(),
-                target_amount,
-                0,
-                deadline,
-            ),
+            target_amount,
+            0,
+            deadline,
         );
 
         Self::tracker_push(&env, pool_id);
@@ -1229,17 +1001,6 @@ impl CrowdfundingTrait for CrowdfundingContract {
     fn get_pool(env: Env, pool_id: u64) -> Option<PoolConfig> {
         let pool_key = StorageKey::Pool(pool_id);
         env.storage().instance().get(&pool_key)
-    }
-
-    fn get_pool_balance(env: Env, pool_id: u64) -> Result<i128, CrowdfundingError> {
-        if !env.storage().instance().has(&StorageKey::Pool(pool_id)) {
-            return Err(CrowdfundingError::PoolNotFound);
-        }
-        Ok(env
-            .storage()
-            .instance()
-            .get(&StorageKey::PoolBalance(pool_id))
-            .unwrap_or(0))
     }
 
     fn get_pool_metadata(env: Env, pool_id: u64) -> (String, String, String) {
@@ -1263,82 +1024,19 @@ impl CrowdfundingTrait for CrowdfundingContract {
         }
     }
 
-    fn update_pool_metadata_hash(
-        env: Env,
-        pool_id: u64,
-        caller: Address,
-        new_hash: String,
-    ) -> Result<(), CrowdfundingError> {
-        if Self::is_paused(env.clone()) {
-            return Err(CrowdfundingError::ContractPaused);
-        }
-
-        let pool_key = StorageKey::Pool(pool_id);
-        if !env.storage().instance().has(&pool_key) {
-            return Err(CrowdfundingError::PoolNotFound);
-        }
-
-        let creator_key = StorageKey::PoolCreator(pool_id);
-        let creator: Address = env
-            .storage()
-            .instance()
-            .get(&creator_key)
-            .ok_or(CrowdfundingError::Unauthorized)?;
-
-        if caller != creator {
-            return Err(CrowdfundingError::Unauthorized);
-        }
-        caller.require_auth();
-
-        if new_hash.len() > MAX_HASH_LENGTH {
-            return Err(CrowdfundingError::InvalidMetadata);
-        }
-
-        let metadata_key = StorageKey::PoolMetadata(pool_id);
-        let mut metadata: PoolMetadata =
-            env.storage()
-                .persistent()
-                .get(&metadata_key)
-                .unwrap_or(PoolMetadata {
-                    description: String::from_str(&env, ""),
-                    external_url: String::from_str(&env, ""),
-                    image_hash: String::from_str(&env, ""),
-                });
-
-        metadata.image_hash = new_hash.clone();
-        env.storage().persistent().set(&metadata_key, &metadata);
-
-        events::pool_metadata_updated(&env, pool_id, caller.clone(), new_hash.clone());
-        events::pool_metadata_updated_v2(&env, pool_id, caller, new_hash);
-
-        Ok(())
-    }
-
     fn update_pool_state(
         env: Env,
         pool_id: u64,
-        caller: Address,
         new_state: PoolState,
     ) -> Result<(), CrowdfundingError> {
         if Self::is_paused(env.clone()) {
             return Err(CrowdfundingError::ContractPaused);
         }
-
-        // Authorize caller - must be pool creator or validator
+        // Ensure pool exists
         let pool_key = StorageKey::Pool(pool_id);
         if !env.storage().instance().has(&pool_key) {
             return Err(CrowdfundingError::PoolNotFound);
         }
-
-        let pool: PoolConfig = env.storage().instance().get(&pool_key).unwrap();
-        let creator_key = StorageKey::PoolCreator(pool_id);
-        let creator: Address = env.storage().instance().get(&creator_key).unwrap();
-
-        if caller != creator && caller != pool.validator {
-            return Err(CrowdfundingError::Unauthorized);
-        }
-
-        caller.require_auth();
 
         // Validate state transition (optional - could add more complex logic)
         let state_key = StorageKey::PoolState(pool_id);
@@ -1359,11 +1057,8 @@ impl CrowdfundingTrait for CrowdfundingContract {
         // Update state
         env.storage().instance().set(&state_key, &new_state);
 
-        // Emit events
-        events::pool_state_updated(&env, pool_id, new_state.clone());
-        if new_state == PoolState::Paused {
-            events::pool_paused(&env, pool_id);
-        }
+        // Emit event
+        events::pool_state_updated(&env, pool_id, new_state);
 
         Ok(())
     }
@@ -1447,14 +1142,14 @@ impl CrowdfundingTrait for CrowdfundingContract {
             .unwrap_or(false)
     }
 
-    fn unpause_pool(env: Env, pool_id: u64, caller: Address) -> Result<(), CrowdfundingError> {
-        // Verify pool exists
+    fn pause_pool(env: Env, pool_id: u64, sponsor: Address) -> Result<(), CrowdfundingError> {
+        // Pool must exist
         let pool_key = StorageKey::Pool(pool_id);
         if !env.storage().instance().has(&pool_key) {
             return Err(CrowdfundingError::PoolNotFound);
         }
 
-        // Only the pool creator (sponsor) may unpause
+        // Only the pool sponsor (creator) may pause
         let creator_key = StorageKey::PoolCreator(pool_id);
         let creator: Address = env
             .storage()
@@ -1462,12 +1157,12 @@ impl CrowdfundingTrait for CrowdfundingContract {
             .get(&creator_key)
             .ok_or(CrowdfundingError::Unauthorized)?;
 
-        if caller != creator {
+        if sponsor != creator {
             return Err(CrowdfundingError::Unauthorized);
         }
-        caller.require_auth();
+        sponsor.require_auth();
 
-        // Pool must currently be Paused
+        // Pool must currently be Active
         let state_key = StorageKey::PoolState(pool_id);
         let current_state: PoolState = env
             .storage()
@@ -1475,19 +1170,24 @@ impl CrowdfundingTrait for CrowdfundingContract {
             .get(&state_key)
             .unwrap_or(PoolState::Active);
 
-        if current_state != PoolState::Paused {
-            return Err(CrowdfundingError::ContractAlreadyUnpaused);
+        if current_state == PoolState::Paused {
+            return Err(CrowdfundingError::ContractAlreadyPaused);
         }
 
-        // Reinstate Active state
-        env.storage().instance().set(&state_key, &PoolState::Active);
+        if current_state == PoolState::Closed || current_state == PoolState::Cancelled {
+            return Err(CrowdfundingError::InvalidPoolState);
+        }
 
-        events::pool_unpaused(&env, pool_id);
-        events::pool_state_updated(&env, pool_id, PoolState::Active);
+        env.storage().instance().set(&state_key, &PoolState::Paused);
+
+        events::pool_paused(&env, pool_id);
+        events::pool_state_updated(&env, pool_id, PoolState::Paused);
 
         Ok(())
     }
 
+    fn unpause_pool(env: Env, pool_id: u64, caller: Address) -> Result<(), CrowdfundingError> {
+        // Verify pool exists
     fn contribute(
         env: Env,
         pool_id: u64,
@@ -1501,7 +1201,7 @@ impl CrowdfundingTrait for CrowdfundingContract {
         }
         contributor.require_auth();
 
-        if amount < 0 {
+        if amount <= 0 {
             return Err(CrowdfundingError::InvalidAmount);
         }
 
@@ -1526,6 +1226,20 @@ impl CrowdfundingTrait for CrowdfundingContract {
             return Err(CrowdfundingError::InvalidPoolState);
         }
 
+        // Calculate platform fee with discount
+        let base_fee_bps = Self::get_platform_fee_percentage(env.clone());
+        let discount_bps = Self::get_asset_discount(env.clone(), asset.clone());
+        
+        // Apply discount: effective_fee = base_fee * (1 - discount/10000)
+        let effective_fee_bps = if discount_bps > 0 {
+            base_fee_bps.saturating_sub((base_fee_bps * discount_bps) / 10000)
+        } else {
+            base_fee_bps
+        };
+
+        // Calculate fee amount: fee = amount * effective_fee_bps / 10000
+        let platform_fee = (amount * effective_fee_bps as i128) / 10000;
+        let net_contribution = amount - platform_fee;
         // Load pool configuration to enforce minimum contribution
         let pool_key = StorageKey::Pool(pool_id);
         let pool: PoolConfig = env
@@ -1537,17 +1251,27 @@ impl CrowdfundingTrait for CrowdfundingContract {
         if amount < pool.min_contribution {
             return Err(CrowdfundingError::InvalidAmount);
         }
+ main
 
         // Transfer tokens
-        // Note: In a real implementation we would use the token client.
-        // For this task we assume the token interface is available via soroban_sdk::token
-        if amount > 0 {
-            use soroban_sdk::token;
-            let token_client = token::Client::new(&env, &asset);
-            token_client.transfer(&contributor, env.current_contract_address(), &amount);
+        use soroban_sdk::token;
+        let token_client = token::Client::new(&env, &asset);
+        token_client.transfer(&contributor, env.current_contract_address(), &amount);
+
+        // Track platform fees if any
+        if platform_fee > 0 {
+            let platform_fees_key = StorageKey::PlatformFees;
+            let current_fees: i128 = env
+                .storage()
+                .instance()
+                .get(&platform_fees_key)
+                .unwrap_or(0);
+            env.storage()
+                .instance()
+                .set(&platform_fees_key, &(current_fees + platform_fee));
         }
 
-        // Update metrics
+        // Update metrics with net contribution
         let metrics_key = StorageKey::PoolMetrics(pool_id);
         let mut metrics: PoolMetrics = env
             .storage()
@@ -1573,16 +1297,16 @@ impl CrowdfundingTrait for CrowdfundingContract {
             metrics.contributor_count += 1;
         }
 
-        metrics.total_raised += amount;
+        metrics.total_raised += net_contribution;
         metrics.last_donation_at = env.ledger().timestamp();
 
         env.storage().instance().set(&metrics_key, &metrics);
 
-        // Update per-user contribution tracking
+        // Update per-user contribution tracking with net contribution
         let updated_contribution = PoolContribution {
             pool_id,
             contributor: contributor.clone(),
-            amount: existing_contribution.amount + amount,
+            amount: existing_contribution.amount + net_contribution,
             asset: asset.clone(),
         };
         env.storage()
@@ -1597,9 +1321,6 @@ impl CrowdfundingTrait for CrowdfundingContract {
                 .instance()
                 .get(&contributors_key)
                 .unwrap_or(Vec::new(&env));
-            if contributors.len() >= MAX_SINGLE_OP_ITEMS {
-                return Err(CrowdfundingError::VectorLimitExceeded);
-            }
             contributors.push_back(contributor.clone());
             env.storage()
                 .instance()
@@ -1612,7 +1333,7 @@ impl CrowdfundingTrait for CrowdfundingContract {
             pool_id,
             contributor,
             asset,
-            amount,
+            net_contribution,
             env.ledger().timestamp(),
             is_private,
         );
@@ -1857,13 +1578,7 @@ impl CrowdfundingTrait for CrowdfundingContract {
             .get(&pool_key)
             .ok_or(CrowdfundingError::PoolNotFound)?;
 
-        // 2. Ensure pool is not already claimed
-        let claimed_key = StorageKey::PoolClaimed(pool_id);
-        if env.storage().instance().has(&claimed_key) {
-            return Err(CrowdfundingError::PoolAlreadyDisbursed);
-        }
-
-        // 3. Check pool state
+        // 2. Check pool state
         let state_key = StorageKey::PoolState(pool_id);
         let current_state: PoolState = env
             .storage()
@@ -1871,16 +1586,16 @@ impl CrowdfundingTrait for CrowdfundingContract {
             .get(&state_key)
             .unwrap_or(PoolState::Active);
 
-        if current_state == PoolState::Closed || current_state == PoolState::Cancelled {
+        if current_state == PoolState::Closed || current_state == PoolState::Cancelled || current_state == PoolState::Paused {
             return Err(CrowdfundingError::InvalidPoolState);
         }
 
-        // 4. Validate student is verified
+        // 3. Validate student is verified
         if !Self::is_cause_verified(env.clone(), student.clone()) {
             return Err(CrowdfundingError::Unauthorized);
         }
 
-        // 5. Check if student actually applied (has a PoolContribution record)
+        // 4. Check if student actually applied
         let contribution_key = StorageKey::PoolContribution(pool_id, student.clone());
         if !env
             .storage()
@@ -1890,32 +1605,105 @@ impl CrowdfundingTrait for CrowdfundingContract {
             return Err(CrowdfundingError::NoContributionToRefund);
         }
 
-        // 6. Transfer raised funds
-        let metrics_key = StorageKey::PoolMetrics(pool_id);
-        let metrics: PoolMetrics = env
-            .storage()
-            .instance()
-            .get(&metrics_key)
-            .unwrap_or_default();
-        let amount_to_transfer = metrics.total_raised;
+        // 5. Milestone-based payout: find the next pending milestone and enforce its time-lock.
+        let milestones_key = StorageKey::PoolMilestones(pool_id);
+        let has_milestones = env.storage().instance().has(&milestones_key);
 
-        if amount_to_transfer > 0 {
-            use soroban_sdk::token;
-            let token_client = token::Client::new(&env, &pool.token_address);
-            token_client.transfer(
-                &env.current_contract_address(),
-                &student,
-                &amount_to_transfer,
-            );
+        if has_milestones {
+            let mut milestones: soroban_sdk::Vec<Milestone> = env
+                .storage()
+                .instance()
+                .get(&milestones_key)
+                .unwrap();
+
+            // Find the first Pending milestone.
+            let now = env.ledger().timestamp();
+            let mut found_idx: Option<u32> = None;
+            for i in 0..milestones.len() {
+                let m = milestones.get(i).unwrap();
+                if m.status == MilestoneStatus::Pending {
+                    found_idx = Some(i);
+                    break;
+                }
+            }
+
+            let idx = found_idx.ok_or(CrowdfundingError::PoolAlreadyDisbursed)?;
+            let milestone = milestones.get(idx).unwrap();
+
+            // Guard: time-lock not yet reached.
+            if now < milestone.unlock_date {
+                return Err(CrowdfundingError::MilestoneLocked);
+            }
+
+            // Guard: already claimed (double-claim protection — belt-and-suspenders).
+            if milestone.status == MilestoneStatus::Claimed {
+                return Err(CrowdfundingError::MilestoneAlreadyClaimed);
+            }
+
+            let amount_to_transfer = milestone.amount;
+
+            // Toggle status before transfer (checks-effects-interactions).
+            let updated = Milestone {
+                unlock_date: milestone.unlock_date,
+                amount: milestone.amount,
+                status: MilestoneStatus::Claimed,
+            };
+            milestones.set(idx, updated);
+            env.storage().instance().set(&milestones_key, &milestones);
+
+            if amount_to_transfer > 0 {
+                use soroban_sdk::token;
+                let token_client = token::Client::new(&env, &pool.token_address);
+                token_client.transfer(
+                    &env.current_contract_address(),
+                    &student,
+                    &amount_to_transfer,
+                );
+            }
+
+            // If all milestones are now claimed, mark pool as Disbursed.
+            let all_claimed = (0..milestones.len()).all(|i| {
+                milestones.get(i).unwrap().status == MilestoneStatus::Claimed
+            });
+            if all_claimed {
+                env.storage()
+                    .instance()
+                    .set(&state_key, &PoolState::Disbursed);
+                events::pool_state_updated(&env, pool_id, PoolState::Disbursed);
+            }
+        } else {
+            // Legacy path: no milestones — transfer total raised in one shot.
+            let claimed_key = StorageKey::PoolClaimed(pool_id);
+            if env.storage().instance().has(&claimed_key) {
+                return Err(CrowdfundingError::PoolAlreadyDisbursed);
+            }
+
+            let metrics_key = StorageKey::PoolMetrics(pool_id);
+            let metrics: PoolMetrics = env
+                .storage()
+                .instance()
+                .get(&metrics_key)
+                .unwrap_or_default();
+            let amount_to_transfer = metrics.total_raised;
+
+            // Mark claimed before transfer (checks-effects-interactions).
+            env.storage().instance().set(&claimed_key, &true);
+            env.storage()
+                .instance()
+                .set(&state_key, &PoolState::Disbursed);
+
+            if amount_to_transfer > 0 {
+                use soroban_sdk::token;
+                let token_client = token::Client::new(&env, &pool.token_address);
+                token_client.transfer(
+                    &env.current_contract_address(),
+                    &student,
+                    &amount_to_transfer,
+                );
+            }
+
+            events::pool_state_updated(&env, pool_id, PoolState::Disbursed);
         }
-
-        // 7. Mark as Claimed/Disbursed
-        env.storage().instance().set(&claimed_key, &true);
-        env.storage()
-            .instance()
-            .set(&state_key, &PoolState::Disbursed);
-
-        events::pool_state_updated(&env, pool_id, PoolState::Disbursed);
 
         Ok(())
     }
@@ -1959,7 +1747,7 @@ impl CrowdfundingTrait for CrowdfundingContract {
             .ok_or(CrowdfundingError::NotInitialized)?;
 
         // Check authorization: caller must be either the pool creator or admin
-        let is_creator = creator.as_ref() == Some(&caller);
+        let is_creator = creator.as_ref().map_or(false, |c| c == &caller);
         let is_admin = caller == admin;
 
         if !is_creator && !is_admin {
@@ -2025,7 +1813,11 @@ impl CrowdfundingTrait for CrowdfundingContract {
         env.storage()
             .instance()
             .set(&StorageKey::VerifiedCause(cause.clone()), &true);
-        events::school_registered(&env, cause);
+        
+        // Emit school registration event for external indexers
+        events::school_registered(&env, admin, cause);
+        
+            .set(&StorageKey::VerifiedCause(cause), &true);
         Ok(())
     }
 
@@ -2044,16 +1836,20 @@ impl CrowdfundingTrait for CrowdfundingContract {
             .ok_or(CrowdfundingError::NotInitialized)?;
         admin.require_auth();
 
+        // Remove verification status
         env.storage()
             .instance()
             .remove(&StorageKey::VerifiedCause(cause.clone()));
-        events::school_revoked(&env, cause);
+        
+        // Emit school revocation event for external indexers
+        events::school_revoked(&env, admin, cause);
+        
         Ok(())
     }
 
     fn withdraw_platform_fees(
         env: Env,
-        to: Address,
+        admin: Address,
         amount: i128,
     ) -> Result<(), CrowdfundingError> {
         let stored_admin: Address = env
@@ -2062,7 +1858,11 @@ impl CrowdfundingTrait for CrowdfundingContract {
             .get(&StorageKey::Admin)
             .ok_or(CrowdfundingError::NotInitialized)?;
 
-        stored_admin.require_auth();
+        if admin != stored_admin {
+            return Err(CrowdfundingError::Unauthorized);
+        }
+
+        admin.require_auth();
 
         if amount <= 0 {
             return Err(CrowdfundingError::InvalidAmount);
@@ -2088,62 +1888,30 @@ impl CrowdfundingTrait for CrowdfundingContract {
 
         use soroban_sdk::token;
         let token_client = token::Client::new(&env, &token_address);
-        token_client.transfer(&env.current_contract_address(), &to, &amount);
+        token_client.transfer(&env.current_contract_address(), &admin, &amount);
 
         env.storage()
             .instance()
             .set(&platform_fees_key, &(current_fees - amount));
 
-        events::platform_fees_withdrawn(&env, to, amount);
+        events::platform_fees_withdrawn(&env, admin, amount);
 
         Ok(())
     }
 
-    fn withdraw_event_fees(
-        env: Env,
-        admin: Address,
-        to: Address,
-        amount: i128,
-    ) -> Result<(), CrowdfundingError> {
-        let stored_admin: Address = env
+    fn set_emergency_contact(env: Env, contact: Address) -> Result<(), CrowdfundingError> {
+        let admin: Address = env
             .storage()
             .instance()
             .get(&StorageKey::Admin)
             .ok_or(CrowdfundingError::NotInitialized)?;
 
-        if admin != stored_admin {
-            return Err(CrowdfundingError::Unauthorized);
-        }
-
         admin.require_auth();
 
-        if amount <= 0 {
-            return Err(CrowdfundingError::InvalidAmount);
-        }
+        let key = StorageKey::EmergencyContact;
+        env.storage().instance().set(&key, &contact);
 
-        let event_fees_key = StorageKey::EventFeeTreasury;
-        let current_fees: i128 = env.storage().instance().get(&event_fees_key).unwrap_or(0);
-
-        if amount > current_fees {
-            return Err(CrowdfundingError::InsufficientFees);
-        }
-
-        let token_key = StorageKey::CrowdfundingToken;
-        let token_address: Address = env
-            .storage()
-            .instance()
-            .get(&token_key)
-            .ok_or(CrowdfundingError::NotInitialized)?;
-
-        use soroban_sdk::token;
-        let token_client = token::Client::new(&env, &token_address);
-        token_client.transfer(&env.current_contract_address(), &to, &amount);
-
-        env.storage()
-            .instance()
-            .set(&event_fees_key, &(current_fees - amount));
-
-        events::event_fees_withdrawn(&env, admin, to, amount);
+        events::emergency_contact_updated(&env, admin.clone(), contact);
 
         Ok(())
     }
@@ -2173,6 +1941,63 @@ impl CrowdfundingTrait for CrowdfundingContract {
             .ok_or(CrowdfundingError::NotInitialized)
     }
 
+    fn set_asset_discount(
+        env: Env,
+        asset: Address,
+        discount_bps: u32,
+    ) -> Result<(), CrowdfundingError> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&StorageKey::Admin)
+            .ok_or(CrowdfundingError::NotInitialized)?;
+        admin.require_auth();
+
+        // Validate discount is not more than 100% (10000 basis points)
+        if discount_bps > 10000 {
+            return Err(CrowdfundingError::InvalidFee);
+        }
+
+        let key = StorageKey::AssetDiscount(asset.clone());
+        env.storage().instance().set(&key, &discount_bps);
+
+        events::asset_discount_set(&env, admin, asset, discount_bps);
+
+        Ok(())
+    }
+
+    fn get_asset_discount(env: Env, asset: Address) -> u32 {
+        let key = StorageKey::AssetDiscount(asset);
+        env.storage().instance().get(&key).unwrap_or(0)
+    }
+
+    fn set_platform_fee_percentage(env: Env, fee_bps: u32) -> Result<(), CrowdfundingError> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&StorageKey::Admin)
+            .ok_or(CrowdfundingError::NotInitialized)?;
+        admin.require_auth();
+
+        // Validate fee is not more than 100% (10000 basis points)
+        if fee_bps > 10000 {
+            return Err(CrowdfundingError::InvalidFee);
+        }
+
+        let key = StorageKey::PlatformFeePercentage;
+        env.storage().instance().set(&key, &fee_bps);
+
+        events::platform_fee_percentage_set(&env, admin, fee_bps);
+
+        Ok(())
+    }
+
+    fn get_platform_fee_percentage(env: Env) -> u32 {
+        let key = StorageKey::PlatformFeePercentage;
+        env.storage().instance().get(&key).unwrap_or(0)
+    }
+
+ main
     fn get_contract_version(env: Env) -> String {
         String::from_str(&env, "1.2.0")
     }
@@ -2181,15 +2006,67 @@ impl CrowdfundingTrait for CrowdfundingContract {
         Self::tracker_get(&env)
     }
 
+    fn blacklist_address(env: Env, address: Address) -> Result<(), CrowdfundingError> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&StorageKey::Admin)
+            .ok_or(CrowdfundingError::NotInitialized)?;
+        admin.require_auth();
+
+        let blacklist_key = StorageKey::Blacklist(address.clone());
+        env.storage().persistent().set(&blacklist_key, &true);
+
+        events::address_blacklisted(&env, admin, address);
+
+        Ok(())
+    }
+
+    fn unblacklist_address(env: Env, address: Address) -> Result<(), CrowdfundingError> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&StorageKey::Admin)
+            .ok_or(CrowdfundingError::NotInitialized)?;
+        admin.require_auth();
+
+        let blacklist_key = StorageKey::Blacklist(address.clone());
+        env.storage().persistent().remove(&blacklist_key);
+
+        events::address_unblacklisted(&env, admin, address);
+
+        Ok(())
+    }
+
+    fn is_blacklisted(env: Env, address: Address) -> bool {
+        let blacklist_key = StorageKey::Blacklist(address);
+        env.storage()
+            .persistent()
+            .get(&blacklist_key)
+            .unwrap_or(false)
+    }
+
+    fn get_campaign_fee_history(
+        env: Env,
+        campaign_id: BytesN<32>,
+    ) -> Result<i128, CrowdfundingError> {
+        // Validate campaign exists
+        Self::get_campaign(env.clone(), campaign_id.clone())?;
+
+        let fee_history_key = StorageKey::CampaignFeeHistory(campaign_id);
+        let current_fees: i128 = env
+            .storage()
+            .persistent()
+            .get(&fee_history_key)
+            .unwrap_or(0);
+        Ok(current_fees)
+
     fn get_pool_contributions_paginated(
         env: Env,
         pool_id: u64,
         offset: u32,
         limit: u32,
     ) -> Result<Vec<PoolContribution>, CrowdfundingError> {
-        if limit > MAX_SINGLE_OP_ITEMS {
-            return Err(CrowdfundingError::VectorLimitExceeded);
-        }
         // Validate pool exist
         // Check if pool exists
         let pool_key = StorageKey::Pool(pool_id);
@@ -2234,46 +2111,16 @@ impl CrowdfundingTrait for CrowdfundingContract {
         Ok(result)
     }
 
-    fn upgrade_contract(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), CrowdfundingError> {
-        let admin: Address = env
-            .storage()
-            .instance()
-            .get(&StorageKey::Admin)
-            .ok_or(CrowdfundingError::NotInitialized)?;
-        admin.require_auth();
-
-        env.deployer().update_current_contract_wasm(new_wasm_hash);
-        Ok(())
-    }
-
-    fn get_pool_liquid_balance(env: Env, pool_id: u64) -> Result<i128, CrowdfundingError> {
-        if !env.storage().instance().has(&StorageKey::Pool(pool_id)) {
-            return Err(CrowdfundingError::PoolNotFound);
-        }
-        let total: i128 = env
-            .storage()
-            .instance()
-            .get(&StorageKey::PoolBalance(pool_id))
-            .unwrap_or(0);
-        let allocated: i128 = env
-            .storage()
-            .instance()
-            .get(&StorageKey::PoolAllocated(pool_id))
-            .unwrap_or(0);
-        Ok(total.saturating_sub(allocated))
-    }
-
-    fn withdraw_unallocated(
+    fn unlock_performance_milestone(
         env: Env,
         pool_id: u64,
-        sponsor: Address,
-        amount: i128,
+        milestone_index: u32,
+        validator: Address,
     ) -> Result<(), CrowdfundingError> {
-        if Self::is_paused(env.clone()) {
-            return Err(CrowdfundingError::ContractPaused);
-        }
+        // Require authentication from the validator
+        validator.require_auth();
 
-        // Pool must exist
+        // Get the pool to verify the validator
         let pool_key = StorageKey::Pool(pool_id);
         let pool: PoolConfig = env
             .storage()
@@ -2281,167 +2128,73 @@ impl CrowdfundingTrait for CrowdfundingContract {
             .get(&pool_key)
             .ok_or(CrowdfundingError::PoolNotFound)?;
 
-        // Only the pool creator (sponsor) may withdraw
-        let creator_key = StorageKey::PoolCreator(pool_id);
-        let creator: Address = env
+        // Verify that the caller is the designated validator for this pool
+        if pool.validator != validator {
+            return Err(CrowdfundingError::NotPoolValidator);
+        }
+
+        // Get the milestone
+        let milestone_key = StorageKey::PoolMilestone(pool_id, milestone_index);
+        let mut milestone: MilestoneDetails = env
             .storage()
             .instance()
-            .get(&creator_key)
-            .ok_or(CrowdfundingError::Unauthorized)?;
-        if sponsor != creator {
-            return Err(CrowdfundingError::Unauthorized);
-        }
-        sponsor.require_auth();
+            .get(&milestone_key)
+            .ok_or(CrowdfundingError::MilestoneNotFound)?;
 
-        if amount <= 0 {
-            return Err(CrowdfundingError::InvalidAmount);
+        // Check if milestone is already unlocked
+        if milestone.is_unlocked {
+            return Err(CrowdfundingError::MilestoneAlreadyUnlocked);
         }
 
-        // Compute liquid balance: total_balance - allocated_to_approved_applications
-        let liquid = Self::get_pool_liquid_balance(env.clone(), pool_id)?;
-        if amount > liquid {
-            return Err(CrowdfundingError::InsufficientBalance);
-        }
+        // Unlock the milestone with performance override
+        milestone.is_unlocked = true;
+        milestone.unlocked_by = Some(validator.clone());
+        milestone.unlocked_at = Some(env.ledger().timestamp());
+        milestone.performance_override = true;
 
-        // Deduct from pool balance
-        let balance_key = StorageKey::PoolBalance(pool_id);
-        let current_balance: i128 = env.storage().instance().get(&balance_key).unwrap_or(0);
-        env.storage()
-            .instance()
-            .set(&balance_key, &(current_balance - amount));
+        // Save the updated milestone
+        env.storage().instance().set(&milestone_key, &milestone);
 
-        // Transfer tokens to sponsor
-        use soroban_sdk::token;
-        let token_client = token::Client::new(&env, &pool.token_address);
-        token_client.transfer(&env.current_contract_address(), &sponsor, &amount);
 
-        events::pool_unallocated_withdrawn(&env, pool_id, sponsor, amount);
-        Ok(())
-    }
-
-    fn apply_for_scholarship(
-        env: Env,
-        pool_id: u64,
-        applicant: Address,
-    ) -> Result<(), ValidationError> {
-        // Applicant must sign the transaction
-        applicant.require_auth();
-
-        // Fetch pool from persistent storage — panics if not found
-        let pool_key = StorageKey::Pool(pool_id);
-        let pool: PoolConfig = env
+        // Get the milestone
+        let milestone_key = StorageKey::PoolMilestone(pool_id, milestone_index);
+        let mut milestone: MilestoneDetails = env
             .storage()
             .instance()
-            .get(&pool_key)
-            .ok_or(ValidationError::PoolNotFound)?;
-
-        if env.ledger().timestamp() > pool.application_deadline {
-            return Err(ValidationError::Unauthorized);
-        }
+            .get(&milestone_key)
+            .ok_or(CrowdfundingError::MilestoneNotFound)?;
 
         let app_key = StorageKey::ScholarshipApplication(pool_id, applicant.clone());
-
-        // Prevent duplicate applications
-        if env.storage().instance().has(&app_key) {
-            return Err(ValidationError::ApplicationAlreadyExists);
+        // Check if milestone is already unlocked
+        if milestone.is_unlocked {
+            return Err(CrowdfundingError::MilestoneAlreadyUnlocked);
         }
 
-        let application = ScholarshipApplication {
-            pool_id,
-            applicant: applicant.clone(),
-            status: ApplicationStatus::Pending,
-        };
+        // Unlock the milestone with performance override
+        milestone.is_unlocked = true;
+        milestone.unlocked_by = Some(validator.clone());
+        milestone.unlocked_at = Some(env.ledger().timestamp());
+        milestone.performance_override = true;
 
-        env.storage().instance().set(&app_key, &application);
-        events::scholarship_applied(&env, pool_id, applicant.clone());
-        events::application_submitted(&env, pool_id, applicant, pool.target_amount);
+        // Save the updated milestone
+        env.storage().instance().set(&milestone_key, &milestone);
+
+        // Emit event for milestone unlock
+        events::milestone_unlocked(&env, pool_id, milestone_index, validator, true);
+
         Ok(())
     }
 
-    fn approve_application(
-        env: Env,
-        pool_id: u32,
-        student: Address,
-    ) -> Result<(), ValidationError> {
-        // Fetch pool from persistent storage — gives us the stored validator
-        let pool_key = StorageKey::Pool(pool_id as u64);
-        let pool: PoolConfig = env
-            .storage()
-            .instance()
-            .get(&pool_key)
-            .ok_or(ValidationError::PoolNotFound)?;
-
-        // Enforce validator identity: only the pool's designated validator may approve.
-        // Invalid signers cause an immediate auth panic here.
-        pool.validator.require_auth();
-
-        let app_key = StorageKey::ScholarshipApplication(pool_id as u64, student.clone());
-        let mut application: ScholarshipApplication = env
-            .storage()
-            .instance()
-            .get(&app_key)
-            .ok_or(ValidationError::ApplicationNotFound)?;
-
-        if application.status != ApplicationStatus::Pending {
-            return Err(ValidationError::ApplicationAlreadyProcessed);
-        }
-
-        // Shift status to Approved and write back to storage
-        application.status = ApplicationStatus::Approved;
-        env.storage().instance().set(&app_key, &application);
-        events::scholarship_approved(&env, pool_id as u64, student, pool.validator);
-        Ok(())
-    }
-
-    fn reject_application(
+    fn get_milestone(
         env: Env,
         pool_id: u64,
-        applicant: Address,
-        validator: Address,
-    ) -> Result<(), ValidationError> {
-        // Fetch pool — ensures it exists and gives us the stored validator
-        let pool_key = StorageKey::Pool(pool_id);
-        let pool: PoolConfig = env
-            .storage()
-            .instance()
-            .get(&pool_key)
-            .ok_or(ValidationError::PoolNotFound)?;
-
-        // Enforce that only the pool's designated validator may reject
-        pool.validator.require_auth();
-
-        // The caller must match the stored validator
-        if validator != pool.validator {
-            return Err(ValidationError::Unauthorized);
-        }
-
-        let app_key = StorageKey::ScholarshipApplication(pool_id, applicant.clone());
-        let mut application: ScholarshipApplication = env
-            .storage()
-            .instance()
-            .get(&app_key)
-            .ok_or(ValidationError::ApplicationNotFound)?;
-
-        if application.status != ApplicationStatus::Pending {
-            return Err(ValidationError::ApplicationAlreadyProcessed);
-        }
-
-        application.status = ApplicationStatus::Rejected;
-        env.storage().instance().set(&app_key, &application);
-        events::scholarship_rejected(&env, pool_id, applicant, validator);
-        Ok(())
-    }
-
-    fn get_application(
-        env: Env,
-        pool_id: u64,
-        applicant: Address,
-    ) -> Result<ScholarshipApplication, ValidationError> {
-        let app_key = StorageKey::ScholarshipApplication(pool_id, applicant);
+        milestone_index: u32,
+    ) -> Result<MilestoneDetails, CrowdfundingError> {
+        let milestone_key = StorageKey::PoolMilestone(pool_id, milestone_index);
         env.storage()
             .instance()
-            .get(&app_key)
-            .ok_or(ValidationError::ApplicationNotFound)
+            .get(&milestone_key)
+            .ok_or(CrowdfundingError::MilestoneNotFound)
     }
 
     fn remove_school(env: Env, school_addr: Address) -> Result<(), CrowdfundingError> {
@@ -2558,6 +2311,35 @@ impl CrowdfundingTrait for CrowdfundingContract {
             .ok_or(CrowdfundingError::ApplicationNotFound)
     }
 
+    fn register_school(
+        env: Env,
+        school: Address,
+        name: String,
+        country: String,
+        accreditation_id: String,
+    ) -> Result<(), CrowdfundingError> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&StorageKey::Admin)
+            .ok_or(CrowdfundingError::NotInitialized)?;
+        admin.require_auth();
+
+        let entry = crate::base::types::SchoolRegistry {
+            name,
+            country,
+            accreditation_id,
+        };
+        crate::interfaces::registry::register_school(&env, &school, &entry);
+        events::school_registered(&env, school);
+        Ok(())
+    }
+
+    fn is_validator_registered(env: Env, validator: Address) -> bool {
+        crate::interfaces::registry::is_validator_registered(&env, &validator)
+    }
+}
+
     fn add_milestone(
         env: Env,
         pool_id: u64,
@@ -2583,17 +2365,13 @@ impl CrowdfundingTrait for CrowdfundingContract {
             return Err(CrowdfundingError::InvalidAmount);
         }
 
-        // Get pool configuration to check remaining funds
-        let pool: PoolConfig = env
+        // Verify pool exists
+        let pool_key = StorageKey::Pool(pool_id);
+        let _pool: PoolConfig = env
             .storage()
             .instance()
             .get(&pool_key)
             .ok_or(CrowdfundingError::PoolNotFound)?;
-
-        // Deadline enforcement: deny late applications deterministically
-        if env.ledger().timestamp() > pool.application_deadline {
-            return Err(CrowdfundingError::DeadlinePassed);
-        }
 
         // Get pool metrics to calculate remaining funds
         let metrics_key = StorageKey::PoolMetrics(pool_id);
@@ -2677,6 +2455,53 @@ impl CrowdfundingTrait for CrowdfundingContract {
 
         Ok(())
     }
+
+    fn revoke_scholarship(
+        env: Env,
+        pool_id: u64,
+        student: Address,
+        validator: Address,
+    ) -> Result<(), CrowdfundingError> {
+        // Pool must exist and validator must match
+        let pool_key = StorageKey::Pool(pool_id);
+        let pool: PoolConfig = env
+            .storage()
+            .instance()
+            .get(&pool_key)
+            .ok_or(CrowdfundingError::PoolNotFound)?;
+
+        if validator != pool.validator {
+            return Err(CrowdfundingError::Unauthorized);
+        }
+        validator.require_auth();
+
+        // Application must exist and be Approved
+        let application_key = StorageKey::Application(pool_id, student.clone());
+        let mut application: ApplicationDetails = env
+            .storage()
+            .instance()
+            .get(&application_key)
+            .ok_or(CrowdfundingError::ApplicationNotFound)?;
+
+        if application.status != ApplicationStatus::Approved {
+            return Err(CrowdfundingError::ApplicationAlreadyReviewed);
+        }
+
+        // Flip status to Revoked
+        application.status = ApplicationStatus::Revoked;
+        env.storage().instance().set(&application_key, &application);
+
+        // Return the previously allocated amount to the unallocated pool
+        let alloc_key = StorageKey::PoolAllocated(pool_id);
+        let current_alloc: i128 = env.storage().instance().get(&alloc_key).unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&alloc_key, &current_alloc.saturating_sub(application.requested_amount));
+
+        events::scholarship_revoked(&env, pool_id, student, validator);
+
+        Ok(())
+    }
 }
 
 impl CrowdfundingContract {
@@ -2732,13 +2557,12 @@ impl SecondCrowdfundingTrait for CrowdfundingContract {
             token,
         };
 
-        env.storage()
-            .instance()
-            .set(&StorageKey::Event(id.clone()), &details);
+        // Save milestone
+        let milestone_key = StorageKey::PoolMilestone(pool_id, milestone_index);
+        env.storage().instance().set(&milestone_key, &milestone);
 
-        env.storage()
-            .instance()
-            .set(&StorageKey::EventMetrics(id), &EventMetrics::new());
+        // Emit event for milestone creation
+        events::milestone_created(&env, pool_id, milestone_index, unlock_time);
 
         Ok(())
     }

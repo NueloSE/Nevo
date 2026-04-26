@@ -33,5 +33,6 @@ pub struct Application {
 pub enum DataKey {
     Pool(u64),
     NextPoolId,
+    Admin,
     Application(u64, Address),
 }

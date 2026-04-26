@@ -5,6 +5,13 @@ use crate::types::{Application, DataKey, ScholarshipPool};
 const POOL_BUMP_AMOUNT: u32 = 100;
 const POOL_LIFETIME_THRESHOLD: u32 = 50;
 
+pub fn get_admin(env: &Env) -> Option<soroban_sdk::Address> {
+    env.storage().instance().get(&DataKey::Admin)
+}
+
+pub fn set_admin(env: &Env, admin: &soroban_sdk::Address) {
+    env.storage().instance().set(&DataKey::Admin, admin);
+}
 const APP_BUMP_AMOUNT: u32 = 100;
 const APP_LIFETIME_THRESHOLD: u32 = 50;
 
