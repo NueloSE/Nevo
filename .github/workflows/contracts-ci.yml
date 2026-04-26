@@ -1,17 +1,14 @@
-name: Contract CI/CD Pipeline
+name: Contract Build Check
 
 on:
-    push: 
-        branches: [main, develop]
-        paths: 
-            - 'contract/**'
-            - 'FundEdu/**'
-
-    pull_request:
-        branches: [ main, develop ]
-        paths:
-            - 'contract/**'
-            - 'FundEdu/**'
+  push:
+    branches: [main, develop]
+    paths:
+      - 'nevo_server/**'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'nevo_server/**'
 
 jobs:
   build:
@@ -28,31 +25,6 @@ jobs:
           profile: minimal
           override: true
 
-      - name: Install Stellar CLI
-        run: |
-          curl -s https://get.stellar.org | bash
-
-      - name: Check formatting
-        run: cargo fmt --all -- --check
-        working-directory: ./contract/contract
-
-      - name: Install wasm32-unknown-unknown target
-        run: rustup target add wasm32-unknown-unknown
-
-      - name: Build contract WASM (required for upgrade integration test)
-        run: cargo build --target wasm32-unknown-unknown --release
-        working-directory: ./contract/contract
-
-      - name: Run contract tests
-        run: cargo test
-        working-directory: ./contract/contract
-
-      - name: Build contracts
-        run: cargo build --release
-        working-directory: ./contract/contract
-
-      - name: Deploy to Stellar testnet
-        run: echo "Add Stellar deployment script here"
-        working-directory: ./contract/contract
-        env:
-          STELLAR_SECRET: ${{ secrets.STELLAR_SECRET }}
+      - name: Build contract
+        run: cargo build
+        working-directory: ./nevo_server

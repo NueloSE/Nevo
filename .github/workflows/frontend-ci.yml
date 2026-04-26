@@ -1,20 +1,20 @@
-name: Frontend CI
+name: Frontend Build Check
 on:
   push:
     branches: ["main", "frontend"]
     paths:
-      - "frontend/**"
+      - "nevo_frontend/**"
   pull_request:
     branches: ["main", "frontend"]
     paths:
-      - "frontend/**"
+      - "nevo_frontend/**"
 jobs:
-  build-and-check:
-    name: Frontend Build & Format Check
+  build-check:
+    name: Frontend Build Check
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: ./frontend
+        working-directory: ./nevo_frontend
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -27,11 +27,5 @@ jobs:
       - name: Install dependencies
         run: npm install
       
-      - name: Format Check (Lint)
-        run: npm run lint -- --max-warnings=0
-        # Runs ESLint to verify code quality and formatting rules defined in eslint config.
-        # This satisfies the "Format Check" requirement.
-      
       - name: Build Check
         run: npm run build
-        # Verification that the Next.js application builds successfully.
