@@ -8,6 +8,10 @@ use crate::base::{
         acquire_emergency_lock, reentrancy_lock_logic, release_emergency_lock, release_pool_lock,
     },
     types::{
+        ApplicationStatus, CampaignDetails, CampaignLifecycleStatus, CampaignMetrics, Contribution,
+        EmergencyWithdrawal, EventDetails, EventMetrics, Milestone, MilestoneStatus, MultiSigConfig,
+        PoolConfig, PoolContribution, PoolMetadata, PoolMetrics, PoolState, ScholarshipApplication,
+        StorageKey, MAX_DESCRIPTION_LENGTH, MAX_HASH_LENGTH, MAX_SINGLE_OP_ITEMS, MAX_STRING_LENGTH,
         CampaignDetails, CampaignLifecycleStatus, CampaignMetrics, Contribution,
         EmergencyWithdrawal, MilestoneDetails, MultiSigConfig, PoolConfig, PoolContribution, PoolMetadata,
         PoolMetrics, PoolState, StorageKey, MAX_DESCRIPTION_LENGTH, MAX_HASH_LENGTH,
@@ -737,6 +741,14 @@ impl CrowdfundingTrait for CrowdfundingContract {
         // Store config
         env.storage().instance().set(&pool_key, &config);
 
+        // If milestones are provided, persist them under the dedicated key so
+        // claim_pool_funds can read and mutate them independently.
+        if !config.milestones.is_empty() {
+            env.storage()
+                .instance()
+                .set(&StorageKey::PoolMilestones(pool_id), &config.milestones);
+        }
+
         // Store pool creator
         let creator_key = StorageKey::PoolCreator(pool_id);
         env.storage().instance().set(&creator_key, &creator);
@@ -851,6 +863,10 @@ impl CrowdfundingTrait for CrowdfundingContract {
             is_private: false,
             duration,
             created_at: now,
+            application_deadline: deadline,
+            token_address: platform_token,
+            validator: creator.clone(),
+            milestones: soroban_sdk::Vec::new(&env),
         };
 
         // Store pool configuration
@@ -1473,13 +1489,7 @@ impl CrowdfundingTrait for CrowdfundingContract {
             .get(&pool_key)
             .ok_or(CrowdfundingError::PoolNotFound)?;
 
-        // 2. Ensure pool is not already claimed
-        let claimed_key = StorageKey::PoolClaimed(pool_id);
-        if env.storage().instance().has(&claimed_key) {
-            return Err(CrowdfundingError::PoolAlreadyDisbursed);
-        }
-
-        // 3. Check pool state
+        // 2. Check pool state
         let state_key = StorageKey::PoolState(pool_id);
         let current_state: PoolState = env
             .storage()
@@ -1491,12 +1501,12 @@ impl CrowdfundingTrait for CrowdfundingContract {
             return Err(CrowdfundingError::InvalidPoolState);
         }
 
-        // 4. Validate student is verified
+        // 3. Validate student is verified
         if !Self::is_cause_verified(env.clone(), student.clone()) {
             return Err(CrowdfundingError::Unauthorized);
         }
 
-        // 5. Check if student actually applied (has a PoolContribution record)
+        // 4. Check if student actually applied
         let contribution_key = StorageKey::PoolContribution(pool_id, student.clone());
         if !env
             .storage()
@@ -1506,32 +1516,105 @@ impl CrowdfundingTrait for CrowdfundingContract {
             return Err(CrowdfundingError::NoContributionToRefund);
         }
 
-        // 6. Transfer raised funds
-        let metrics_key = StorageKey::PoolMetrics(pool_id);
-        let metrics: PoolMetrics = env
-            .storage()
-            .instance()
-            .get(&metrics_key)
-            .unwrap_or_default();
-        let amount_to_transfer = metrics.total_raised;
+        // 5. Milestone-based payout: find the next pending milestone and enforce its time-lock.
+        let milestones_key = StorageKey::PoolMilestones(pool_id);
+        let has_milestones = env.storage().instance().has(&milestones_key);
 
-        if amount_to_transfer > 0 {
-            use soroban_sdk::token;
-            let token_client = token::Client::new(&env, &pool.token_address);
-            token_client.transfer(
-                &env.current_contract_address(),
-                &student,
-                &amount_to_transfer,
-            );
+        if has_milestones {
+            let mut milestones: soroban_sdk::Vec<Milestone> = env
+                .storage()
+                .instance()
+                .get(&milestones_key)
+                .unwrap();
+
+            // Find the first Pending milestone.
+            let now = env.ledger().timestamp();
+            let mut found_idx: Option<u32> = None;
+            for i in 0..milestones.len() {
+                let m = milestones.get(i).unwrap();
+                if m.status == MilestoneStatus::Pending {
+                    found_idx = Some(i);
+                    break;
+                }
+            }
+
+            let idx = found_idx.ok_or(CrowdfundingError::PoolAlreadyDisbursed)?;
+            let milestone = milestones.get(idx).unwrap();
+
+            // Guard: time-lock not yet reached.
+            if now < milestone.unlock_date {
+                return Err(CrowdfundingError::MilestoneLocked);
+            }
+
+            // Guard: already claimed (double-claim protection — belt-and-suspenders).
+            if milestone.status == MilestoneStatus::Claimed {
+                return Err(CrowdfundingError::MilestoneAlreadyClaimed);
+            }
+
+            let amount_to_transfer = milestone.amount;
+
+            // Toggle status before transfer (checks-effects-interactions).
+            let updated = Milestone {
+                unlock_date: milestone.unlock_date,
+                amount: milestone.amount,
+                status: MilestoneStatus::Claimed,
+            };
+            milestones.set(idx, updated);
+            env.storage().instance().set(&milestones_key, &milestones);
+
+            if amount_to_transfer > 0 {
+                use soroban_sdk::token;
+                let token_client = token::Client::new(&env, &pool.token_address);
+                token_client.transfer(
+                    &env.current_contract_address(),
+                    &student,
+                    &amount_to_transfer,
+                );
+            }
+
+            // If all milestones are now claimed, mark pool as Disbursed.
+            let all_claimed = (0..milestones.len()).all(|i| {
+                milestones.get(i).unwrap().status == MilestoneStatus::Claimed
+            });
+            if all_claimed {
+                env.storage()
+                    .instance()
+                    .set(&state_key, &PoolState::Disbursed);
+                events::pool_state_updated(&env, pool_id, PoolState::Disbursed);
+            }
+        } else {
+            // Legacy path: no milestones — transfer total raised in one shot.
+            let claimed_key = StorageKey::PoolClaimed(pool_id);
+            if env.storage().instance().has(&claimed_key) {
+                return Err(CrowdfundingError::PoolAlreadyDisbursed);
+            }
+
+            let metrics_key = StorageKey::PoolMetrics(pool_id);
+            let metrics: PoolMetrics = env
+                .storage()
+                .instance()
+                .get(&metrics_key)
+                .unwrap_or_default();
+            let amount_to_transfer = metrics.total_raised;
+
+            // Mark claimed before transfer (checks-effects-interactions).
+            env.storage().instance().set(&claimed_key, &true);
+            env.storage()
+                .instance()
+                .set(&state_key, &PoolState::Disbursed);
+
+            if amount_to_transfer > 0 {
+                use soroban_sdk::token;
+                let token_client = token::Client::new(&env, &pool.token_address);
+                token_client.transfer(
+                    &env.current_contract_address(),
+                    &student,
+                    &amount_to_transfer,
+                );
+            }
+
+            events::pool_state_updated(&env, pool_id, PoolState::Disbursed);
         }
-
-        // 7. Mark as Claimed/Disbursed
-        env.storage().instance().set(&claimed_key, &true);
-        env.storage()
-            .instance()
-            .set(&state_key, &PoolState::Disbursed);
-
-        events::pool_state_updated(&env, pool_id, PoolState::Disbursed);
 
         Ok(())
     }

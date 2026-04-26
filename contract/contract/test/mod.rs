@@ -10,6 +10,7 @@ mod crowdfunding_test;
 mod fund_edu_contract_test;
 mod fund_edu_lifecycle_test;
 mod get_pool_contributions_paginated_test;
+mod milestone_claim_test;
 mod milestone_unlock_test;
 mod platform_fee_test;
 mod pool_deposit_test;

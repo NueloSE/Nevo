@@ -1,5 +1,28 @@
 use soroban_sdk::{contracttype, Address, BytesN, String, Vec};
 
+/// Status of a single milestone payout.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[repr(u32)]
+pub enum MilestoneStatus {
+    Pending = 0,
+    Claimed = 1,
+}
+
+/// A single time-locked payout milestone attached to a scholarship pool.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Milestone {
+    /// Unix timestamp after which this milestone may be claimed.
+    pub unlock_date: u64,
+    /// Token amount released when this milestone is claimed.
+    pub amount: i128,
+    /// Whether this milestone has already been disbursed.
+    pub status: MilestoneStatus,
+}
+
+/// Documentation for this item.
+#[allow(missing_docs)]
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CampaignDetails {
@@ -39,8 +62,13 @@ pub struct PoolConfig {
     pub is_private: bool,
     pub duration: u64,
     pub created_at: u64,
+    /// Deadline after which new applications are no longer accepted.
+    pub application_deadline: u64,
+    /// The token address.
     pub token_address: Address,
     pub validator: Address,
+    /// Ordered list of time-locked milestone payouts for this pool.
+    pub milestones: Vec<Milestone>,
 }
 
 #[contracttype]
@@ -303,6 +331,35 @@ pub enum StorageKey {
     ReentrancyLock(u64),
     EmergencyWithdrawalLock,
     PoolCreator(u64),
+    /// EventFeeTreasury.
+    EventFeeTreasury,
+    /// PlatformFeeBps.
+    PlatformFeeBps,
+    // Per-pool revenue split: tokens destined for the event creator
+    /// EventPool.
+    EventPool(u64),
+    // Per-pool revenue split: tokens accumulated as platform fee
+    /// EventPlatformFees.
+    EventPlatformFees(u64),
+    // Track if someone bought a ticket
+    /// UserTicket.
+    UserTicket(u64, Address),
+    // Event details keyed by event id
+    /// Event.
+    Event(BytesN<32>),
+    // track if a pool has been claimed
+    PoolClaimed(u64),
+    // Per-event metrics (tickets sold, etc.)
+    /// EventMetrics.
+    EventMetrics(BytesN<32>),
+    // Scholarship application keyed by (pool_id, applicant)
+    ScholarshipApplication(u64, Address),
+    // Locked token balance deposited by the sponsor at pool creation
+    PoolBalance(u64),
+    // Sum of requested_amount for all Approved applications on a pool
+    PoolAllocated(u64),
+    // Ordered milestone payouts for a pool
+    PoolMilestones(u64),
     
     // Milestone-related storage keys
     PoolMilestone(u64, u32), // pool_id, milestone_index
@@ -325,6 +382,10 @@ mod tests {
             is_private: false,
             duration: 30 * 24 * 60 * 60,
             created_at: 1,
+            application_deadline: 1,
+            token_address: token,
+            validator,
+            milestones: soroban_sdk::Vec::new(&env),
         };
 
         cfg.validate();
@@ -342,6 +403,10 @@ mod tests {
             is_private: false,
             duration: 30 * 24 * 60 * 60,
             created_at: 1,
+            application_deadline: 1,
+            token_address: token,
+            validator,
+            milestones: soroban_sdk::Vec::new(&env),
         };
 
         cfg.validate();
@@ -507,8 +572,10 @@ mod tests {
             is_private: false,
             duration: 86400,
             created_at: 1234567890,
+            application_deadline: 1234567890,
             token_address: token.clone(),
             validator: creator.clone(),
+            milestones: soroban_sdk::Vec::new(&env),
         };
         let metadata = PoolMetadata {
             description: String::from_str(&env, "Metadata description"),
