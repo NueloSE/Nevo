@@ -35,6 +35,9 @@ dist/
 # Text and Markdown files
 *.txt
 *.md
+!README.md
+!contribution.md
+!agents.md
 
 # IDE and editor files
 .vscode/
