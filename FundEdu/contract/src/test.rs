@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use soroban_sdk::{testutils::Address as _, Address, Env, String};
+use soroban_sdk::{testutils::Address as _, Address, BytesN, Env, String};
 
 use crate::{
     contract::{FundEduContract, FundEduContractClient, FundEduError},
@@ -15,6 +15,61 @@ fn setup() -> (Env, FundEduContractClient<'static>) {
     let contract_id = env.register(FundEduContract, ());
     let client = FundEduContractClient::new(&env, &contract_id);
     (env, client)
+}
+
+fn setup_with_admin() -> (Env, FundEduContractClient<'static>, Address) {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(FundEduContract, ());
+    let client = FundEduContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    client.initialize(&admin).unwrap();
+    (env, client, admin)
+}
+
+// ── initialize ────────────────────────────────────────────────────────────────
+
+#[test]
+fn initialize_succeeds() {
+    let (env, client) = setup();
+    let admin = Address::generate(&env);
+    assert!(client.initialize(&admin).is_ok());
+}
+
+#[test]
+fn initialize_twice_returns_already_initialized() {
+    let (env, client, _) = setup_with_admin();
+    let other = Address::generate(&env);
+    let result = client.try_initialize(&other);
+    assert_eq!(result, Err(Ok(FundEduError::AlreadyInitialized)));
+}
+
+// ── upgrade ───────────────────────────────────────────────────────────────────
+
+#[test]
+fn upgrade_without_initialize_returns_unauthorized() {
+    let (env, client) = setup();
+    let hash = BytesN::from_array(&env, &[0u8; 32]);
+    let result = client.try_upgrade(&hash);
+    assert_eq!(result, Err(Ok(FundEduError::Unauthorized)));
+}
+
+#[test]
+#[should_panic(expected = "Error(Auth, InvalidAction)")]
+fn upgrade_non_admin_panics() {
+    let (env, client, _admin) = setup_with_admin();
+    // Remove mock auths so the non-admin call fails auth
+    let env2 = Env::default();
+    let contract_id = env2.register(FundEduContract, ());
+    let client2 = FundEduContractClient::new(&env2, &contract_id);
+    // Initialize with a real admin (mocked)
+    env2.mock_all_auths();
+    let admin = Address::generate(&env2);
+    client2.initialize(&admin).unwrap();
+    // Now clear auths and try upgrade as a different address — should panic
+    env2.set_auths(&[]);
+    let hash = BytesN::from_array(&env2, &[1u8; 32]);
+    client2.upgrade(&hash).unwrap();
 }
 
 // ── success cases ─────────────────────────────────────────────────────────────
