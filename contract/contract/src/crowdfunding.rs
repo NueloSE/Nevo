@@ -1515,6 +1515,11 @@ impl CrowdfundingTrait for CrowdfundingContract {
 
         env.storage()
             .instance()
+            .set(&StorageKey::VerifiedCause(cause.clone()), &true);
+        
+        // Emit school registration event for external indexers
+        events::school_registered(&env, admin, cause);
+        
             .set(&StorageKey::VerifiedCause(cause), &true);
         Ok(())
     }
@@ -1524,6 +1529,25 @@ impl CrowdfundingTrait for CrowdfundingContract {
             .instance()
             .get(&StorageKey::VerifiedCause(cause))
             .unwrap_or(false)
+    }
+
+    fn reject_cause(env: Env, cause: Address) -> Result<(), CrowdfundingError> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&StorageKey::Admin)
+            .ok_or(CrowdfundingError::NotInitialized)?;
+        admin.require_auth();
+
+        // Remove verification status
+        env.storage()
+            .instance()
+            .remove(&StorageKey::VerifiedCause(cause.clone()));
+        
+        // Emit school revocation event for external indexers
+        events::school_revoked(&env, admin, cause);
+        
+        Ok(())
     }
 
     fn withdraw_platform_fees(
@@ -1574,6 +1598,23 @@ impl CrowdfundingTrait for CrowdfundingContract {
             .set(&platform_fees_key, &(current_fees - amount));
 
         events::platform_fees_withdrawn(&env, admin, amount);
+
+        Ok(())
+    }
+
+    fn set_emergency_contact(env: Env, contact: Address) -> Result<(), CrowdfundingError> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&StorageKey::Admin)
+            .ok_or(CrowdfundingError::NotInitialized)?;
+
+        admin.require_auth();
+
+        let key = StorageKey::EmergencyContact;
+        env.storage().instance().set(&key, &contact);
+
+        events::emergency_contact_updated(&env, admin.clone(), contact);
 
         Ok(())
     }
@@ -1790,6 +1831,29 @@ impl CrowdfundingTrait for CrowdfundingContract {
         if pool.validator != validator {
             return Err(CrowdfundingError::NotPoolValidator);
         }
+
+        // Get the milestone
+        let milestone_key = StorageKey::PoolMilestone(pool_id, milestone_index);
+        let mut milestone: MilestoneDetails = env
+            .storage()
+            .instance()
+            .get(&milestone_key)
+            .ok_or(CrowdfundingError::MilestoneNotFound)?;
+
+        // Check if milestone is already unlocked
+        if milestone.is_unlocked {
+            return Err(CrowdfundingError::MilestoneAlreadyUnlocked);
+        }
+
+        // Unlock the milestone with performance override
+        milestone.is_unlocked = true;
+        milestone.unlocked_by = Some(validator.clone());
+        milestone.unlocked_at = Some(env.ledger().timestamp());
+        milestone.performance_override = true;
+
+        // Save the updated milestone
+        env.storage().instance().set(&milestone_key, &milestone);
+
 
         // Get the milestone
         let milestone_key = StorageKey::PoolMilestone(pool_id, milestone_index);

@@ -186,6 +186,17 @@ pub fn milestone_unlocked(
     env.events().publish(topics, (milestone_index, performance_override));
 }
 
+// School Registry events
+pub fn school_registered(env: &Env, admin: Address, school_addr: Address) {
+    let topics = (soroban_sdk::symbol_short!("SchReg"), school_addr);
+    env.events().publish(topics, admin);
+}
+
+pub fn school_revoked(env: &Env, admin: Address, school_addr: Address) {
+    let topics = (soroban_sdk::symbol_short!("SchRev"), school_addr);
+    env.events().publish(topics, admin);
+}
+
 pub fn school_removed(env: &Env, admin: Address, school_addr: Address, pool_id: u64) {
     let topics = (Symbol::new(env, "school_removed"), admin, school_addr);
     env.events().publish(topics, pool_id);
