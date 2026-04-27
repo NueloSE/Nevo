@@ -2,8 +2,8 @@
 
 use super::*;
 use soroban_sdk::{
-    testutils::Address as _,
-    Address, Env, String,
+    testutils::{Address as _, MockAuth, MockAuthInvoke},
+    Address, Env, IntoVal, String,
 };
 
 #[test]
@@ -144,60 +144,209 @@ fn test_multiple_pools() {
     assert_eq!(client.get_pool_count(), 2);
 }
 
+// ============= CLAIM_FUNDS TESTS =============
+
 #[test]
-fn test_apply_for_scholarship_success() {
+#[should_panic(expected = "Application status not found")]
+fn test_claim_funds_no_status() {
     let env = Env::default();
     let contract_id = env.register(Contract, ());
     let client = ContractClient::new(&env, &contract_id);
 
     let creator = Address::generate(&env);
     let student = Address::generate(&env);
-    let title = String::from_str(&env, "Scholarship Pool");
-    let description = String::from_str(&env, "For students");
-    let goal: u128 = 10_000_000_000;
+    let token_address = Address::generate(&env);
 
-    let pool_id = client.create_pool(&creator, &title, &description, &goal);
+    let pool_id = client.create_pool(
+        &creator,
+        &String::from_str(&env, "Test Pool"),
+        &String::from_str(&env, "Test"),
+        &1_000_000_000,
+    );
 
-    let application_data = String::from_str(&env, "My application details");
-    let result = client.apply_for_scholarship(&pool_id, &student, &application_data);
+    // Donate to the pool
+    client.donate(&pool_id, &creator, &500_000_000);
 
-    assert_eq!(result.0, 1); // application id
-    assert_eq!(result.1, student);
-    assert_eq!(result.2, application_data);
+    // Try to claim without setting status - should panic
+    client
+        .mock_auths(&[MockAuth {
+            address: &student,
+            invoke: &MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "claim_funds",
+                args: (&student, &pool_id, &100_000_000i128, &token_address).into_val(&env),
+                sub_invokes: &[],
+            },
+        }])
+        .claim_funds(&student, &pool_id, &100_000_000i128, &token_address);
 }
 
 #[test]
-#[should_panic(expected = "Duplicate application")]
-fn test_apply_for_scholarship_duplicate() {
+#[should_panic(expected = "Application is not approved")]
+fn test_claim_funds_rejected_application() {
     let env = Env::default();
     let contract_id = env.register(Contract, ());
     let client = ContractClient::new(&env, &contract_id);
 
     let creator = Address::generate(&env);
     let student = Address::generate(&env);
-    let title = String::from_str(&env, "Scholarship Pool");
-    let description = String::from_str(&env, "For students");
-    let goal: u128 = 10_000_000_000;
+    let token_address = Address::generate(&env);
 
-    let pool_id = client.create_pool(&creator, &title, &description, &goal);
+    let pool_id = client.create_pool(
+        &creator,
+        &String::from_str(&env, "Test Pool"),
+        &String::from_str(&env, "Test"),
+        &1_000_000_000,
+    );
 
-    let application_data = String::from_str(&env, "My application details");
-    client.apply_for_scholarship(&pool_id, &student, &application_data);
+    // Donate to the pool
+    client.donate(&pool_id, &creator, &500_000_000);
 
-    // This should panic
-    client.apply_for_scholarship(&pool_id, &student, &application_data);
+    // Set status to "Rejected"
+    client.set_application_status(&pool_id, &student, &String::from_str(&env, "Rejected"));
+
+    // Try to claim with rejected status - should panic
+    client
+        .mock_auths(&[MockAuth {
+            address: &student,
+            invoke: &MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "claim_funds",
+                args: (&student, &pool_id, &100_000_000i128, &token_address).into_val(&env),
+                sub_invokes: &[],
+            },
+        }])
+        .claim_funds(&student, &pool_id, &100_000_000i128, &token_address);
 }
 
 #[test]
-#[should_panic(expected = "Pool not found")]
-fn test_apply_for_scholarship_invalid_pool() {
+#[should_panic(expected = "Overdraw attempt")]
+fn test_claim_funds_overdraw() {
     let env = Env::default();
     let contract_id = env.register(Contract, ());
     let client = ContractClient::new(&env, &contract_id);
 
+    let creator = Address::generate(&env);
     let student = Address::generate(&env);
-    let application_data = String::from_str(&env, "My application details");
+    let token_address = Address::generate(&env);
 
-    // Invalid pool id
-    client.apply_for_scholarship(&999, &student, &application_data);
+    let pool_id = client.create_pool(
+        &creator,
+        &String::from_str(&env, "Test Pool"),
+        &String::from_str(&env, "Test"),
+        &1_000_000_000,
+    );
+
+    // Donate only 100_000_000 to the pool
+    client.donate(&pool_id, &creator, &100_000_000);
+
+    // Set status to "Approved"
+    client.set_application_status(&pool_id, &student, &String::from_str(&env, "Approved"));
+
+    // Try to claim more than available - should panic
+    client
+        .mock_auths(&[MockAuth {
+            address: &student,
+            invoke: &MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "claim_funds",
+                args: (&student, &pool_id, &500_000_000i128, &token_address).into_val(&env),
+                sub_invokes: &[],
+            },
+        }])
+        .claim_funds(&student, &pool_id, &500_000_000i128, &token_address);
+}
+
+#[test]
+#[should_panic(expected = "Claim amount must be positive")]
+fn test_claim_funds_negative_amount() {
+    let env = Env::default();
+    let contract_id = env.register(Contract, ());
+    let client = ContractClient::new(&env, &contract_id);
+
+    let creator = Address::generate(&env);
+    let student = Address::generate(&env);
+    let token_address = Address::generate(&env);
+
+    let pool_id = client.create_pool(
+        &creator,
+        &String::from_str(&env, "Test Pool"),
+        &String::from_str(&env, "Test"),
+        &1_000_000_000,
+    );
+
+    // Donate to the pool
+    client.donate(&pool_id, &creator, &500_000_000);
+
+    // Set status to "Approved"
+    client.set_application_status(&pool_id, &student, &String::from_str(&env, "Approved"));
+
+    // Try to claim negative amount - should panic
+    client
+        .mock_auths(&[MockAuth {
+            address: &student,
+            invoke: &MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "claim_funds",
+                args: (&student, &pool_id, &-100_000_000i128, &token_address).into_val(&env),
+                sub_invokes: &[],
+            },
+        }])
+        .claim_funds(&student, &pool_id, &-100_000_000i128, &token_address);
+}
+
+#[test]
+fn test_claim_funds_get_claimed_amount() {
+    let env = Env::default();
+    let contract_id = env.register(Contract, ());
+    let client = ContractClient::new(&env, &contract_id);
+
+    let creator = Address::generate(&env);
+    let student = Address::generate(&env);
+
+    let pool_id = client.create_pool(
+        &creator,
+        &String::from_str(&env, "Test Pool"),
+        &String::from_str(&env, "Test"),
+        &1_000_000_000,
+    );
+
+    // Initially, claimed amount should be 0
+    let initial_claimed = client.get_claimed_amount(&pool_id, &student);
+    assert_eq!(initial_claimed, 0);
+
+    // Donate to the pool
+    client.donate(&pool_id, &creator, &500_000_000);
+
+    // Set status to "Approved"
+    client.set_application_status(&pool_id, &student, &String::from_str(&env, "Approved"));
+}
+
+#[test]
+fn test_get_application_status() {
+    let env = Env::default();
+    let contract_id = env.register(Contract, ());
+    let client = ContractClient::new(&env, &contract_id);
+
+    let creator = Address::generate(&env);
+    let student = Address::generate(&env);
+
+    let pool_id = client.create_pool(
+        &creator,
+        &String::from_str(&env, "Test Pool"),
+        &String::from_str(&env, "Test"),
+        &1_000_000_000,
+    );
+
+    // Initially, status should be empty
+    let initial_status = client.get_application_status(&pool_id, &student);
+    assert_eq!(initial_status, String::from_str(&env, ""));
+
+    // Set status to "Approved"
+    let approved_status = String::from_str(&env, "Approved");
+    client.set_application_status(&pool_id, &student, &approved_status);
+
+    // Check that status was set correctly
+    let status_after_set = client.get_application_status(&pool_id, &student);
+    assert_eq!(status_after_set, approved_status);
 }

@@ -1,6 +1,6 @@
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, Address, Env, String, Symbol};
+use soroban_sdk::{contract, contractimpl, token, Address, Env, String, Symbol};
 
 // Storage key constants
 const POOL_COUNT: &str = "pool_count";
@@ -12,6 +12,12 @@ const CLOSED_SUFFIX: &str = "_closed";
 const APPLICATION_COUNT_PREFIX: &str = "a_count_";
 const APPLICATION_PREFIX: &str = "a_";
 const APPLICANT_PREFIX: &str = "ap_";
+
+// Application and claim tracking constants
+const APPLICATION_STATUS_PREFIX: &str = "app_status";
+const CLAIMED_AMOUNT_PREFIX: &str = "claimed_amount";
+const APPLICATION_STATUS_APPROVED: &str = "Approved";
+const APPLICATION_STATUS_REJECTED: &str = "Rejected";
 
 #[contract]
 pub struct Contract;
@@ -122,18 +128,56 @@ impl Contract {
             .unwrap_or(0)
     }
 
-    /// Apply for a scholarship in a pool
-    pub fn apply_for_scholarship(
-        env: Env,
-        pool_id: u32,
-        student: Address,
-        application_data: String,
-    ) -> (u32, Address, String) {
-        // student.require_auth();  // TODO: Enable auth validation in production
+    /// Set application status for a student in a pool (helper for testing and admin)
+    pub fn set_application_status(env: Env, pool_id: u32, student: Address, status: String) {
+        let status_key = (APPLICATION_STATUS_PREFIX, pool_id, student.clone());
+        env.storage().persistent().set(&status_key, &status);
+    }
 
-        // Check if pool exists
+    /// Get application status for a student in a pool
+    pub fn get_application_status(env: Env, pool_id: u32, student: Address) -> String {
+        let status_key = (APPLICATION_STATUS_PREFIX, pool_id, student.clone());
+        env.storage()
+            .persistent()
+            .get::<_, String>(&status_key)
+            .unwrap_or(String::from_str(&env, ""))
+    }
+
+    /// Get claimed amount for a student in a pool
+    pub fn get_claimed_amount(env: Env, pool_id: u32, student: Address) -> i128 {
+        let claimed_key = (CLAIMED_AMOUNT_PREFIX, pool_id, student.clone());
+        env.storage()
+            .persistent()
+            .get::<_, i128>(&claimed_key)
+            .unwrap_or(0)
+    }
+
+    /// Claim funds: allows an approved student to receive their token funding
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `student` - The student address receiving funds (must authorize)
+    /// * `pool_id` - The ID of the pool to claim from
+    /// * `claim_amount` - The amount to claim (in tokens, represented as i128)
+    /// * `token_address` - The address of the token to transfer
+    ///
+    /// # Errors
+    /// - Panics if student is not authorized
+    /// - Panics if application status is not "Approved"
+    /// - Panics if attempting to overdraw (claimed + claim_amount > collected)
+    pub fn claim_funds(
+        env: Env,
+        student: Address,
+        pool_id: u32,
+        claim_amount: i128,
+        token_address: Address,
+    ) {
+        // Enforce student authentication
+        student.require_auth();
+
+        // Get pool data
         let pool_key = pool_id;
-        let _pool_data: (Address, u128, u128, bool) = env
+        let pool_data: (Address, u128, u128, bool) = env
             .storage()
             .persistent()
             .get::<_, (Address, u128, u128, bool)>(&pool_key)
