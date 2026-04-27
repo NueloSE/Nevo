@@ -1,15 +1,21 @@
-"use client";
+'use client';
 
-import { useEffect, useState } from "react";
-import { useWalletStore } from "@/src/store/walletStore";
+import { useEffect, useState } from 'react';
+import { useWalletStore } from '@/src/store/walletStore';
 
 function shortKey(key: string) {
   return `${key.slice(0, 4)}…${key.slice(-4)}`;
 }
 
 export default function ConnectWallet() {
-  const { publicKey, balances, loading, connectWallet, disconnectWallet, initialize } =
-    useWalletStore();
+  const {
+    publicKey,
+    balances,
+    loading,
+    connectWallet,
+    disconnectWallet,
+    initialize,
+  } = useWalletStore();
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
 
@@ -22,13 +28,16 @@ export default function ConnectWallet() {
     try {
       await connectWallet();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Connection failed");
+      setError(e instanceof Error ? e.message : 'Connection failed');
     }
   }
 
   if (loading) {
     return (
-      <div className="h-8 w-28 animate-pulse rounded-full bg-zinc-200 dark:bg-zinc-800" aria-label="Loading wallet" />
+      <div
+        className="h-8 w-28 animate-pulse rounded-full bg-zinc-200 dark:bg-zinc-800"
+        aria-label="Loading wallet"
+      />
     );
   }
 
@@ -43,7 +52,9 @@ export default function ConnectWallet() {
           Connect Wallet
         </button>
         {error && (
-          <p className="text-xs text-red-500" role="alert">{error}</p>
+          <p className="text-xs text-red-500" role="alert">
+            {error}
+          </p>
         )}
       </div>
     );
@@ -68,7 +79,9 @@ export default function ConnectWallet() {
           role="dialog"
           aria-label="Wallet details"
         >
-          <p className="mb-2 text-xs text-[var(--color-text-muted)] break-all">{publicKey}</p>
+          <p className="mb-2 text-xs text-[var(--color-text-muted)] break-all">
+            {publicKey}
+          </p>
           {balances && (
             <div className="mb-3 space-y-1 text-sm">
               <div className="flex justify-between">
@@ -82,7 +95,10 @@ export default function ConnectWallet() {
             </div>
           )}
           <button
-            onClick={() => { disconnectWallet(); setOpen(false); }}
+            onClick={() => {
+              disconnectWallet();
+              setOpen(false);
+            }}
             className="w-full rounded-lg border border-[var(--color-border)] py-1.5 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-950 transition-colors"
             aria-label="Disconnect wallet"
           >

@@ -1,5 +1,5 @@
-import Link from "next/link";
-import ConnectWallet from "@/components/ConnectWallet";
+import Link from 'next/link';
+import ConnectWallet from '@/components/ConnectWallet';
 
 export default function Navbar() {
   return (

@@ -1,10 +1,6 @@
-"use client";
+'use client';
 
-import {
-  isConnected,
-  requestAccess,
-  getAddress,
-} from "@stellar/freighter-api";
+import { isConnected, requestAccess, getAddress } from '@stellar/freighter-api';
 
 /** Returns the connected public key, or null if not connected/allowed. */
 export async function getPublicKey(): Promise<string | null> {
@@ -22,7 +18,7 @@ export async function getPublicKey(): Promise<string | null> {
 export async function connect(onConnect: () => Promise<void>): Promise<void> {
   const connected = await isConnected();
   if (!connected.isConnected) {
-    throw new Error("Freighter extension is not installed.");
+    throw new Error('Freighter extension is not installed.');
   }
   const access = await requestAccess();
   if (access.error) throw new Error(access.error);
