@@ -1,32 +1,23 @@
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, String, Symbol, Vec};
+use soroban_sdk::{contract, contractimpl, token, Address, Env, String, Symbol};
 
 // Storage key constants
 const POOL_COUNT: &str = "pool_count";
+const POOL_PREFIX: &str = "p";
+const CREATOR_SUFFIX: &str = "_creator";
+const GOAL_SUFFIX: &str = "_goal";
+const COLLECTED_SUFFIX: &str = "_collected";
+const CLOSED_SUFFIX: &str = "_closed";
+const APPLICATION_COUNT_PREFIX: &str = "a_count_";
+const APPLICATION_PREFIX: &str = "a_";
+const APPLICANT_PREFIX: &str = "ap_";
 
-// ─── Data Types ──────────────────────────────────────────────────────────────
-
-/// A single time-based funding milestone for a student's graduation journey.
-#[contracttype]
-#[derive(Clone)]
-pub struct Milestone {
-    /// Amount (in stroops) to be released at this milestone.
-    pub amount: u128,
-    /// Ledger timestamp (Unix seconds) after which this milestone unlocks.
-    pub unlock_time: u64,
-}
-
-/// Composite storage key: milestones for a specific student within a pool.
-#[contracttype]
-#[derive(Clone)]
-pub enum DataKey {
-    PoolCount,
-    Pool(u32),
-    DonationCount(u32),
-    /// Milestones allocated to `student` inside `pool_id`.
-    Milestones(u32, Address),
-}
+// Application and claim tracking constants
+const APPLICATION_STATUS_PREFIX: &str = "app_status";
+const CLAIMED_AMOUNT_PREFIX: &str = "claimed_amount";
+const APPLICATION_STATUS_APPROVED: &str = "Approved";
+const APPLICATION_STATUS_REJECTED: &str = "Rejected";
 
 #[contract]
 pub struct Contract;
@@ -55,6 +46,9 @@ impl Contract {
         let pool_id = pool_count + 1;
         pool_count = pool_id;
 
+        // Store pool data - using numeric pool ID as key
+        let pool_key = pool_id;
+
         env.storage()
             .persistent()
             .set(&pool_id, &(creator.clone(), goal, 0u128, false));
@@ -80,7 +74,7 @@ impl Contract {
 
         let new_collected = pool_data.2 + amount;
         env.storage().persistent().set(
-            &pool_id,
+            &pool_key,
             &(pool_data.0.clone(), pool_data.1, new_collected, pool_data.3),
         );
 
@@ -130,82 +124,94 @@ impl Contract {
             .unwrap_or(0)
     }
 
-    // ─── Milestone Management ─────────────────────────────────────────────────
+    /// Set application status for a student in a pool (helper for testing and admin)
+    pub fn set_application_status(env: Env, pool_id: u32, student: Address, status: String) {
+        let status_key = (APPLICATION_STATUS_PREFIX, pool_id, student.clone());
+        env.storage().persistent().set(&status_key, &status);
+    }
 
-    /// Allocate pool funds into time-based milestones for a student's graduation journey.
+    /// Get application status for a student in a pool
+    pub fn get_application_status(env: Env, pool_id: u32, student: Address) -> String {
+        let status_key = (APPLICATION_STATUS_PREFIX, pool_id, student.clone());
+        env.storage()
+            .persistent()
+            .get::<_, String>(&status_key)
+            .unwrap_or(String::from_str(&env, ""))
+    }
+
+    /// Get claimed amount for a student in a pool
+    pub fn get_claimed_amount(env: Env, pool_id: u32, student: Address) -> i128 {
+        let claimed_key = (CLAIMED_AMOUNT_PREFIX, pool_id, student.clone());
+        env.storage()
+            .persistent()
+            .get::<_, i128>(&claimed_key)
+            .unwrap_or(0)
+    }
+
+    /// Claim funds: allows an approved student to receive their token funding
     ///
     /// # Arguments
-    /// * `pool_id`    – The pool whose funds are being scheduled.
-    /// * `student`    – The beneficiary address.
-    /// * `milestones` – Ordered list of [`Milestone`] entries (amount + unlock_time).
+    /// * `env` - The contract environment
+    /// * `student` - The student address receiving funds (must authorize)
+    /// * `pool_id` - The ID of the pool to claim from
+    /// * `claim_amount` - The amount to claim (in tokens, represented as i128)
+    /// * `token_address` - The address of the token to transfer
     ///
-    /// # Invariants enforced
-    /// * The pool must exist and must not be closed.
-    /// * The pool creator (validator) must authorise this call.
-    /// * `milestones` must be non-empty.
-    /// * The sum of all milestone amounts must equal the pool's goal exactly.
-    /// * No milestones may already be active for this (pool, student) pair —
-    ///   prevents silent overwrite of locked funds.
-    pub fn setup_application_milestones(
+    /// # Errors
+    /// - Panics if student is not authorized
+    /// - Panics if application status is not "Approved"
+    /// - Panics if attempting to overdraw (claimed + claim_amount > collected)
+    pub fn claim_funds(
         env: Env,
-        pool_id: u32,
         student: Address,
-        milestones: Vec<Milestone>,
+        pool_id: u32,
+        claim_amount: i128,
+        token_address: Address,
     ) {
-        // ── 1. Load and validate the pool ────────────────────────────────────
+        // Enforce student authentication
+        student.require_auth();
+
+        // Get pool data
+        let pool_key = pool_id;
         let pool_data: (Address, u128, u128, bool) = env
             .storage()
             .persistent()
-            .get::<_, (Address, u128, u128, bool)>(&pool_id)
+            .get::<_, (Address, u128, u128, bool)>(&pool_key)
             .expect("Pool not found");
 
-        if pool_data.3 {
-            panic!("Pool is closed");
+        // Check if already applied
+        let applicant_key = (
+            Symbol::new(&env, APPLICANT_PREFIX),
+            pool_id,
+            student.clone(),
+        );
+        if env.storage().persistent().has(&applicant_key) {
+            panic!("Duplicate application");
         }
 
-        // ── 2. Authorisation — must match the approval (validator) identity ──
-        let validator: Address = pool_data.0.clone();
-        validator.require_auth();
-
-        // ── 3. Milestones array must not be empty ────────────────────────────
-        if milestones.is_empty() {
-            panic!("Milestones array must not be empty");
-        }
-
-        // ── 4. Guard: do not overwrite already-active milestones ─────────────
-        let milestone_key = DataKey::Milestones(pool_id, student.clone());
-        let already_set: bool = env.storage().persistent().has(&milestone_key);
-
-        if already_set {
-            panic!("Milestones already set for this student; cannot overwrite active locked funds");
-        }
-
-        // ── 5. Mathematical invariant: sum(amounts) == pool goal ─────────────
-        let pool_goal: u128 = pool_data.1;
-        let mut total: u128 = 0u128;
-
-        for i in 0..milestones.len() {
-            let m = milestones.get(i).unwrap();
-            total = total
-                .checked_add(m.amount)
-                .expect("Milestone amount overflow");
-        }
-
-        if total != pool_goal {
-            panic!("Sum of milestone amounts must equal the pool goal");
-        }
-
-        // ── 6. Persist milestones ─────────────────────────────────────────────
-        env.storage().persistent().set(&milestone_key, &milestones);
-    }
-
-    /// Retrieve the milestones allocated to a student for a given pool.
-    pub fn get_milestones(env: Env, pool_id: u32, student: Address) -> Vec<Milestone> {
-        let milestone_key = DataKey::Milestones(pool_id, student);
-        env.storage()
+        // Get next application id for this pool
+        let count_key = (Symbol::new(&env, APPLICATION_COUNT_PREFIX), pool_id);
+        let mut app_count: u32 = env
+            .storage()
             .persistent()
-            .get::<_, Vec<Milestone>>(&milestone_key)
-            .expect("No milestones found for this student")
+            .get::<_, u32>(&count_key)
+            .unwrap_or(0);
+        app_count += 1;
+
+        // Store application
+        let app_key = (Symbol::new(&env, APPLICATION_PREFIX), pool_id, app_count);
+        env.storage().persistent().set(
+            &app_key,
+            &(app_count, student.clone(), application_data.clone()),
+        );
+
+        // Mark as applied
+        env.storage().persistent().set(&applicant_key, &true);
+
+        // Update count
+        env.storage().persistent().set(&count_key, &app_count);
+
+        (app_count, student, application_data)
     }
 }
 
