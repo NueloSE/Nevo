@@ -1,10 +1,7 @@
 #![cfg(test)]
 
 use super::*;
-use soroban_sdk::{
-    testutils::{Address as _, MockAuth, MockAuthInvoke},
-    Address, Env, IntoVal, String,
-};
+use soroban_sdk::{testutils::Address as _, Address, Env, String, Vec};
 
 #[test]
 fn test_create_pool() {
@@ -143,6 +140,7 @@ fn test_multiple_pools() {
 #[should_panic(expected = "Application status not found")]
 fn test_claim_funds_no_status() {
     let env = Env::default();
+    env.mock_all_auths();
     let contract_id = env.register(Contract, ());
     let client = ContractClient::new(&env, &contract_id);
 
@@ -161,23 +159,14 @@ fn test_claim_funds_no_status() {
     client.donate(&pool_id, &creator, &500_000_000);
 
     // Try to claim without setting status - should panic
-    client
-        .mock_auths(&[MockAuth {
-            address: &student,
-            invoke: &MockAuthInvoke {
-                contract: &contract_id,
-                fn_name: "claim_funds",
-                args: (&student, &pool_id, &100_000_000i128, &token_address).into_val(&env),
-                sub_invokes: &[],
-            },
-        }])
-        .claim_funds(&student, &pool_id, &100_000_000i128, &token_address);
+    client.claim_funds(&student, &pool_id, &100_000_000i128, &token_address);
 }
 
 #[test]
 #[should_panic(expected = "Application is not approved")]
 fn test_claim_funds_rejected_application() {
     let env = Env::default();
+    env.mock_all_auths();
     let contract_id = env.register(Contract, ());
     let client = ContractClient::new(&env, &contract_id);
 
@@ -199,23 +188,14 @@ fn test_claim_funds_rejected_application() {
     client.set_application_status(&pool_id, &student, &String::from_str(&env, "Rejected"));
 
     // Try to claim with rejected status - should panic
-    client
-        .mock_auths(&[MockAuth {
-            address: &student,
-            invoke: &MockAuthInvoke {
-                contract: &contract_id,
-                fn_name: "claim_funds",
-                args: (&student, &pool_id, &100_000_000i128, &token_address).into_val(&env),
-                sub_invokes: &[],
-            },
-        }])
-        .claim_funds(&student, &pool_id, &100_000_000i128, &token_address);
+    client.claim_funds(&student, &pool_id, &100_000_000i128, &token_address);
 }
 
 #[test]
 #[should_panic(expected = "Overdraw attempt")]
 fn test_claim_funds_overdraw() {
     let env = Env::default();
+    env.mock_all_auths();
     let contract_id = env.register(Contract, ());
     let client = ContractClient::new(&env, &contract_id);
 
@@ -237,23 +217,14 @@ fn test_claim_funds_overdraw() {
     client.set_application_status(&pool_id, &student, &String::from_str(&env, "Approved"));
 
     // Try to claim more than available - should panic
-    client
-        .mock_auths(&[MockAuth {
-            address: &student,
-            invoke: &MockAuthInvoke {
-                contract: &contract_id,
-                fn_name: "claim_funds",
-                args: (&student, &pool_id, &500_000_000i128, &token_address).into_val(&env),
-                sub_invokes: &[],
-            },
-        }])
-        .claim_funds(&student, &pool_id, &500_000_000i128, &token_address);
+    client.claim_funds(&student, &pool_id, &500_000_000i128, &token_address);
 }
 
 #[test]
 #[should_panic(expected = "Claim amount must be positive")]
 fn test_claim_funds_negative_amount() {
     let env = Env::default();
+    env.mock_all_auths();
     let contract_id = env.register(Contract, ());
     let client = ContractClient::new(&env, &contract_id);
 
@@ -275,17 +246,7 @@ fn test_claim_funds_negative_amount() {
     client.set_application_status(&pool_id, &student, &String::from_str(&env, "Approved"));
 
     // Try to claim negative amount - should panic
-    client
-        .mock_auths(&[MockAuth {
-            address: &student,
-            invoke: &MockAuthInvoke {
-                contract: &contract_id,
-                fn_name: "claim_funds",
-                args: (&student, &pool_id, &-100_000_000i128, &token_address).into_val(&env),
-                sub_invokes: &[],
-            },
-        }])
-        .claim_funds(&student, &pool_id, &-100_000_000i128, &token_address);
+    client.claim_funds(&student, &pool_id, &-100_000_000i128, &token_address);
 }
 
 #[test]
@@ -593,4 +554,300 @@ fn test_stress_single_milestone_u128_max_amount() {
     assert_eq!(stored.len(), 1);
     assert_eq!(stored.get(0).unwrap().amount, u128::MAX);
     assert_eq!(stored.get(0).unwrap().unlock_time, 0);
+}
+
+// ============= ISSUE #336 INTEGRATION TESTS =============
+
+#[test]
+fn test_school_registration_to_claim_integration_flow() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(Contract, ());
+    let client = ContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let sponsor = Address::generate(&env);
+    let school = Address::generate(&env);
+    let student = Address::generate(&env);
+    let donor = Address::generate(&env);
+    let token_address = Address::generate(&env);
+    let goal: u128 = 1_000_000_000;
+
+    client.set_admin(&admin);
+    client.register_school(&admin, &school);
+    assert!(client.is_school_registered(&school));
+
+    let pool_id = client.create_pool_for_school(
+        &sponsor,
+        &String::from_str(&env, "School Pool"),
+        &String::from_str(&env, "Scholarship round"),
+        &goal,
+        &school,
+    );
+
+    client.donate(&pool_id, &donor, &600_000_000);
+    client.apply_to_pool(
+        &pool_id,
+        &student,
+        &String::from_str(&env, "Final year application"),
+    );
+    client.approve_application(&pool_id, &school, &student, &true);
+
+    assert_eq!(
+        client.get_application_status(&pool_id, &student),
+        String::from_str(&env, "Approved")
+    );
+
+    client.claim_funds(&student, &pool_id, &150_000_000i128, &token_address);
+    client.claim_funds(&student, &pool_id, &50_000_000i128, &token_address);
+
+    assert_eq!(
+        client.get_claimed_amount(&pool_id, &student),
+        200_000_000i128
+    );
+}
+
+#[test]
+#[should_panic(expected = "School is not registered")]
+fn test_create_pool_for_unregistered_school_panics_issue336() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(Contract, ());
+    let client = ContractClient::new(&env, &contract_id);
+
+    let sponsor = Address::generate(&env);
+    let unregistered_school = Address::generate(&env);
+
+    client.create_pool_for_school(
+        &sponsor,
+        &String::from_str(&env, "Pool"),
+        &String::from_str(&env, "Desc"),
+        &1_000_000_000u128,
+        &unregistered_school,
+    );
+}
+
+#[test]
+#[should_panic(expected = "Only linked school can approve")]
+fn test_non_linked_school_cannot_approve_issue336() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(Contract, ());
+    let client = ContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let sponsor = Address::generate(&env);
+    let school_one = Address::generate(&env);
+    let school_two = Address::generate(&env);
+    let student = Address::generate(&env);
+
+    client.set_admin(&admin);
+    client.register_school(&admin, &school_one);
+    client.register_school(&admin, &school_two);
+
+    let pool_id = client.create_pool_for_school(
+        &sponsor,
+        &String::from_str(&env, "School Pool"),
+        &String::from_str(&env, "Scholarship round"),
+        &1_000_000_000u128,
+        &school_one,
+    );
+
+    client.apply_to_pool(&pool_id, &student, &String::from_str(&env, "Application"));
+    client.approve_application(&pool_id, &school_two, &student, &true);
+}
+
+fn setup_pool(env: &Env, client: &ContractClient, goal: u128) -> (u32, Address) {
+    let creator = Address::generate(env);
+    let pool_id = client.create_pool(
+        &creator,
+        &String::from_str(env, "Stress Pool"),
+        &String::from_str(env, "Stress test pool"),
+        &goal,
+    );
+    (pool_id, creator)
+}
+
+fn make_milestones(env: &Env, items: &[(u128, u64)]) -> Vec<Milestone> {
+    let mut milestones = Vec::new(env);
+    for (amount, unlock_time) in items.iter() {
+        milestones.push_back(Milestone {
+            amount: *amount,
+            unlock_time: *unlock_time,
+        });
+    }
+    milestones
+}
+
+#[test]
+#[should_panic(expected = "Unauthorized admin")]
+fn test_register_school_unauthorized_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(Contract, ());
+    let client = ContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let wrong_admin = Address::generate(&env);
+    let school = Address::generate(&env);
+
+    // Set admin to 'admin'
+    client.set_admin(&admin);
+
+    // Try to register school with different admin - should panic "Unauthorized admin"
+    client.register_school(&wrong_admin, &school);
+}
+
+#[test]
+#[should_panic(expected = "Milestones required")]
+fn test_setup_application_milestones_empty() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(Contract, ());
+    let client = ContractClient::new(&env, &contract_id);
+
+    let creator = Address::generate(&env);
+    let student = Address::generate(&env);
+
+    let pool_id = client.create_pool(
+        &creator,
+        &String::from_str(&env, "Test Pool"),
+        &String::from_str(&env, "Test"),
+        &1_000_000_000,
+    );
+
+    // Try to setup empty milestones - should panic "Milestones required"
+    let empty_milestones: Vec<Milestone> = Vec::new(&env);
+    client.setup_application_milestones(&pool_id, &student, &empty_milestones);
+}
+
+#[test]
+#[should_panic(expected = "Milestone total must equal pool goal")]
+fn test_setup_application_milestones_sum_mismatch() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(Contract, ());
+    let client = ContractClient::new(&env, &contract_id);
+
+    let creator = Address::generate(&env);
+    let student = Address::generate(&env);
+    let pool_goal = 1_000_000_000u128;
+
+    let pool_id = client.create_pool(
+        &creator,
+        &String::from_str(&env, "Test Pool"),
+        &String::from_str(&env, "Test"),
+        &pool_goal,
+    );
+
+    // Create milestones with total != pool_goal
+    let mut milestones = Vec::new(&env);
+    milestones.push_back(Milestone {
+        amount: 500_000_000,
+        unlock_time: 1_000_000,
+    });
+    milestones.push_back(Milestone {
+        amount: 300_000_000, // total = 800_000_000 != 1_000_000_000
+        unlock_time: 2_000_000,
+    });
+
+    // Try to setup milestones with mismatched sum - should panic
+    client.setup_application_milestones(&pool_id, &student, &milestones);
+}
+
+#[test]
+#[should_panic(expected = "Duplicate application")]
+fn test_apply_to_pool_duplicate_application() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(Contract, ());
+    let client = ContractClient::new(&env, &contract_id);
+
+    let creator = Address::generate(&env);
+    let student = Address::generate(&env);
+
+    let pool_id = client.create_pool(
+        &creator,
+        &String::from_str(&env, "Test Pool"),
+        &String::from_str(&env, "Test"),
+        &1_000_000_000,
+    );
+
+    // Apply once
+    client.apply_to_pool(&pool_id, &student, &String::from_str(&env, "Application 1"));
+
+    // Try to apply again - should panic "Duplicate application"
+    client.apply_to_pool(&pool_id, &student, &String::from_str(&env, "Application 2"));
+}
+
+#[test]
+#[should_panic(expected = "Student has not applied")]
+fn test_approve_application_student_not_applied() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(Contract, ());
+    let client = ContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let creator = Address::generate(&env);
+    let school = Address::generate(&env);
+    let student = Address::generate(&env);
+    let other_student = Address::generate(&env);
+
+    client.set_admin(&admin);
+    client.register_school(&admin, &school);
+
+    let pool_id = client.create_pool_for_school(
+        &creator,
+        &String::from_str(&env, "School Pool"),
+        &String::from_str(&env, "Scholarship"),
+        &1_000_000_000u128,
+        &school,
+    );
+
+    // Only other_student applies
+    client.apply_to_pool(
+        &pool_id,
+        &other_student,
+        &String::from_str(&env, "Application"),
+    );
+
+    // Try to approve a student who never applied - should panic
+    client.approve_application(&pool_id, &school, &student, &true);
+}
+
+#[test]
+fn test_approve_application_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(Contract, ());
+    let client = ContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let creator = Address::generate(&env);
+    let school = Address::generate(&env);
+    let student = Address::generate(&env);
+
+    client.set_admin(&admin);
+    client.register_school(&admin, &school);
+
+    let pool_id = client.create_pool_for_school(
+        &creator,
+        &String::from_str(&env, "School Pool"),
+        &String::from_str(&env, "Scholarship"),
+        &1_000_000_000u128,
+        &school,
+    );
+
+    client.apply_to_pool(&pool_id, &student, &String::from_str(&env, "Application"));
+
+    // Approve with false (reject)
+    client.approve_application(&pool_id, &school, &student, &false);
+
+    // Verify status is "Rejected"
+    let status = client.get_application_status(&pool_id, &student);
+    assert_eq!(status, String::from_str(&env, "Rejected"));
 }
