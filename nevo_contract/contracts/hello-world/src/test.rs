@@ -1,7 +1,10 @@
 #![cfg(test)]
 
 use super::*;
-use soroban_sdk::{testutils::Address as _, Address, Env, String, Vec};
+use soroban_sdk::{
+    testutils::{MockAuth, MockAuthInvoke, Address as _},
+    BytesN, IntoVal, Address, Env, String, Vec,
+};
 
 #[test]
 fn test_create_pool() {
@@ -41,10 +44,94 @@ fn test_donate() {
     let pool_id = client.create_pool(&creator, &title, &description, &goal);
 
     let donation_amount: u128 = 100_000_000;
+    let expected_fee = (donation_amount * 1) / 100; // 1% fee
+    let expected_collected = donation_amount - expected_fee; // 99% collected
     client.donate(&pool_id, &donor, &donation_amount);
 
     let pool = client.get_pool(&pool_id);
-    assert_eq!(pool.3, donation_amount); // collected amount
+    assert_eq!(pool.3, expected_collected); // collected amount (net of fees)
+}
+
+#[test]
+fn test_apply_for_scholarship_creates_application() {
+    let env = Env::default();
+    let contract_id = env.register(Contract, ());
+    let client = ContractClient::new(&env, &contract_id);
+
+    let creator = Address::generate(&env);
+    let student = Address::generate(&env);
+    let title = String::from_str(&env, "Scholarship Pool");
+    let description = String::from_str(&env, "Support for students");
+    let goal: u128 = 1_000_000_000;
+
+    let pool_id = client.create_pool(&creator, &title, &description, &goal);
+
+    let credential_hash = BytesN::from_array(&env, &[1u8; 32]);
+    let requested_amount: i128 = 100_000_000;
+
+    let application_id = client
+        .mock_auths(&[MockAuth {
+            address: &student,
+            invoke: &MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "apply_to_pool",
+                args: (&student, &pool_id, &credential_hash, &requested_amount).into_val(&env),
+                sub_invokes: &[],
+            },
+        }])
+        .apply_to_pool(&student, &pool_id, &credential_hash, &requested_amount);
+
+    assert_eq!(application_id, 1);
+
+    let application = client.get_application(&pool_id, &application_id);
+    assert_eq!(application.0, student);
+    assert_eq!(application.1, credential_hash);
+    assert_eq!(application.2, requested_amount);
+
+    let status = client.get_application_status(&pool_id, &student);
+    assert_eq!(status, String::from_str(&env, "Pending"));
+}
+
+#[test]
+#[should_panic(expected = "Pool is inactive")]
+fn test_apply_for_scholarship_inactive_pool() {
+    let env = Env::default();
+    let contract_id = env.register(Contract, ());
+    let client = ContractClient::new(&env, &contract_id);
+
+    let creator = Address::generate(&env);
+    let student = Address::generate(&env);
+    let title = String::from_str(&env, "Scholarship Pool");
+    let description = String::from_str(&env, "Inactive pool");
+    let goal: u128 = 1_000_000_000;
+
+    let pool_id = client.create_pool(&creator, &title, &description, &goal);
+    client
+        .mock_auths(&[MockAuth {
+            address: &creator,
+            invoke: &MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "close_pool",
+                args: (&pool_id,).into_val(&env),
+                sub_invokes: &[],
+            },
+        }])
+        .close_pool(&pool_id);
+
+    let credential_hash = BytesN::from_array(&env, &[2u8; 32]);
+    let requested_amount: i128 = 100_000_000;
+
+    client
+        .mock_auths(&[MockAuth {
+            address: &student,
+            invoke: &MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "apply_to_pool",
+                args: (&student, &pool_id, &credential_hash, &requested_amount).into_val(&env),
+                sub_invokes: &[],
+            },
+        }])
+        .apply_to_pool(&student, &pool_id, &credential_hash, &requested_amount);
 }
 
 #[test]
@@ -62,11 +149,17 @@ fn test_multiple_donations() {
 
     let pool_id = client.create_pool(&creator, &title, &description, &goal);
 
-    client.donate(&pool_id, &donor1, &100_000_000);
-    client.donate(&pool_id, &donor2, &200_000_000);
+    let donation1: u128 = 100_000_000;
+    let donation2: u128 = 200_000_000;
+    let fee1 = (donation1 * 1) / 100; // 1% fee
+    let fee2 = (donation2 * 1) / 100; // 1% fee
+    let expected_collected = (donation1 - fee1) + (donation2 - fee2);
+
+    client.donate(&pool_id, &donor1, &donation1);
+    client.donate(&pool_id, &donor2, &donation2);
 
     let pool = client.get_pool(&pool_id);
-    assert_eq!(pool.3, 300_000_000); // collected amount
+    assert_eq!(pool.3, expected_collected); // collected amount (net of fees)
 }
 
 #[test]
@@ -81,7 +174,17 @@ fn test_close_pool() {
     let goal: u128 = 1_000_000_000;
 
     let pool_id = client.create_pool(&creator, &title, &description, &goal);
-    client.close_pool(&pool_id);
+    client
+        .mock_auths(&[MockAuth {
+            address: &creator,
+            invoke: &MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "close_pool",
+                args: (&pool_id,).into_val(&env),
+                sub_invokes: &[],
+            },
+        }])
+        .close_pool(&pool_id);
 
     let pool = client.get_pool(&pool_id);
     assert_eq!(pool.4, true); // is_closed
@@ -101,9 +204,48 @@ fn test_donate_to_closed_pool() {
     let goal: u128 = 1_000_000_000;
 
     let pool_id = client.create_pool(&creator, &title, &description, &goal);
-    client.close_pool(&pool_id);
+    client
+        .mock_auths(&[MockAuth {
+            address: &creator,
+            invoke: &MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "close_pool",
+                args: (&pool_id,).into_val(&env),
+                sub_invokes: &[],
+            },
+        }])
+        .close_pool(&pool_id);
 
     client.donate(&pool_id, &donor, &100_000_000);
+}
+
+#[test]
+#[should_panic(expected = "HostError: Auth")]
+fn test_close_pool_unauthorized() {
+    let env = Env::default();
+    let contract_id = env.register(Contract, ());
+    let client = ContractClient::new(&env, &contract_id);
+
+    let creator = Address::generate(&env);
+    let unauthorized = Address::generate(&env);
+    let title = String::from_str(&env, "Test Pool");
+    let description = String::from_str(&env, "Test");
+    let goal: u128 = 1_000_000_000;
+
+    let pool_id = client.create_pool(&creator, &title, &description, &goal);
+
+    // Try to close pool with unauthorized user - should panic
+    client
+        .mock_auths(&[MockAuth {
+            address: &unauthorized,
+            invoke: &MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "close_pool",
+                args: (&pool_id,).into_val(&env),
+                sub_invokes: &[],
+            },
+        }])
+        .close_pool(&pool_id);
 }
 
 #[test]
@@ -304,7 +446,6 @@ fn test_get_application_status() {
     let status_after_set = client.get_application_status(&pool_id, &student);
     assert_eq!(status_after_set, approved_status);
 }
-
 // ─── Stress / boundary tests ──────────────────────────────────────────────────
 //
 // These tests exercise the absolute numeric limits of every u32 and u128 field
@@ -587,10 +728,12 @@ fn test_school_registration_to_claim_integration_flow() {
     );
 
     client.donate(&pool_id, &donor, &600_000_000);
+    let credential_hash = BytesN::from_array(&env, &[1u8; 32]);
     client.apply_to_pool(
-        &pool_id,
         &student,
-        &String::from_str(&env, "Final year application"),
+        &pool_id,
+        &credential_hash,
+        &100_000_000i128,
     );
     client.approve_application(&pool_id, &school, &student, &true);
 
@@ -656,7 +799,8 @@ fn test_non_linked_school_cannot_approve_issue336() {
         &school_one,
     );
 
-    client.apply_to_pool(&pool_id, &student, &String::from_str(&env, "Application"));
+    let credential_hash = BytesN::from_array(&env, &[1u8; 32]);
+    client.apply_to_pool(&student, &pool_id, &credential_hash, &100_000_000i128);
     client.approve_application(&pool_id, &school_two, &student, &true);
 }
 
@@ -777,10 +921,11 @@ fn test_apply_to_pool_duplicate_application() {
     );
 
     // Apply once
-    client.apply_to_pool(&pool_id, &student, &String::from_str(&env, "Application 1"));
+    let credential_hash = BytesN::from_array(&env, &[1u8; 32]);
+    client.apply_to_pool(&student, &pool_id, &credential_hash, &100_000_000i128);
 
     // Try to apply again - should panic "Duplicate application"
-    client.apply_to_pool(&pool_id, &student, &String::from_str(&env, "Application 2"));
+    client.apply_to_pool(&student, &pool_id, &credential_hash, &100_000_000i128);
 }
 
 #[test]
@@ -809,10 +954,12 @@ fn test_approve_application_student_not_applied() {
     );
 
     // Only other_student applies
+    let credential_hash = BytesN::from_array(&env, &[1u8; 32]);
     client.apply_to_pool(
-        &pool_id,
         &other_student,
-        &String::from_str(&env, "Application"),
+        &pool_id,
+        &credential_hash,
+        &100_000_000i128,
     );
 
     // Try to approve a student who never applied - should panic
@@ -842,7 +989,8 @@ fn test_approve_application_rejected() {
         &school,
     );
 
-    client.apply_to_pool(&pool_id, &student, &String::from_str(&env, "Application"));
+    let credential_hash = BytesN::from_array(&env, &[1u8; 32]);
+    client.apply_to_pool(&student, &pool_id, &credential_hash, &100_000_000i128);
 
     // Approve with false (reject)
     client.approve_application(&pool_id, &school, &student, &false);
@@ -851,3 +999,312 @@ fn test_approve_application_rejected() {
     let status = client.get_application_status(&pool_id, &student);
     assert_eq!(status, String::from_str(&env, "Rejected"));
 }
+
+// ============= PROTOCOL FEES TESTS (Issue #348) =============
+
+/// Test that fees are accumulated correctly during donations.
+/// A 1% fee is deducted from each donation and accumulated in unclaimed_fees.
+#[test]
+fn test_fee_accumulation_on_donation() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(Contract, ());
+    let client = ContractClient::new(&env, &contract_id);
+
+    let creator = Address::generate(&env);
+    let donor = Address::generate(&env);
+    let pool_goal: u128 = 1_000_000_000;
+
+    let pool_id = client.create_pool(
+        &creator,
+        &String::from_str(&env, "Test Pool"),
+        &String::from_str(&env, "Fee test"),
+        &pool_goal,
+    );
+
+    // Donate 100_000_000 stroops
+    let donation_amount = 100_000_000u128;
+    client.donate(&pool_id, &donor, &donation_amount);
+
+    // Expected fee: 1% of 100_000_000 = 1_000_000
+    let expected_fee = (donation_amount * 1) / 100;
+    let expected_collected = donation_amount - expected_fee;
+
+    // Verify unclaimed fees
+    let unclaimed_fees = client.get_unclaimed_fees();
+    assert_eq!(unclaimed_fees, expected_fee);
+
+    // Verify pool collected amount (net of fees)
+    let pool = client.get_pool(&pool_id);
+    assert_eq!(pool.3, expected_collected);
+}
+
+/// Test that multiple donations accumulate fees correctly.
+#[test]
+fn test_multiple_donations_accumulate_fees() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(Contract, ());
+    let client = ContractClient::new(&env, &contract_id);
+
+    let creator = Address::generate(&env);
+    let donor1 = Address::generate(&env);
+    let donor2 = Address::generate(&env);
+    let pool_goal: u128 = 10_000_000_000;
+
+    let pool_id = client.create_pool(
+        &creator,
+        &String::from_str(&env, "Multi-donation Pool"),
+        &String::from_str(&env, "Fee accumulation test"),
+        &pool_goal,
+    );
+
+    // First donation: 200_000_000
+    let donation1 = 200_000_000u128;
+    client.donate(&pool_id, &donor1, &donation1);
+    let fee1 = (donation1 * 1) / 100;
+
+    // Second donation: 300_000_000
+    let donation2 = 300_000_000u128;
+    client.donate(&pool_id, &donor2, &donation2);
+    let fee2 = (donation2 * 1) / 100;
+
+    // Total unclaimed fees should be fee1 + fee2
+    let total_expected_fees = fee1 + fee2;
+    let unclaimed_fees = client.get_unclaimed_fees();
+    assert_eq!(unclaimed_fees, total_expected_fees);
+
+    // Pool should have collected both donations net of fees
+    let pool = client.get_pool(&pool_id);
+    let expected_collected = (donation1 - fee1) + (donation2 - fee2);
+    assert_eq!(pool.3, expected_collected);
+}
+
+/// Test that get_unclaimed_fees returns 0 when no donations have been made.
+#[test]
+fn test_get_unclaimed_fees_initial_state() {
+    let env = Env::default();
+    let contract_id = env.register(Contract, ());
+    let client = ContractClient::new(&env, &contract_id);
+
+    let unclaimed_fees = client.get_unclaimed_fees();
+    assert_eq!(unclaimed_fees, 0);
+}
+
+/// Test that admin can claim accumulated fees.
+#[test]
+fn test_admin_claim_protocol_fees() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(Contract, ());
+    let client = ContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let creator = Address::generate(&env);
+    let donor = Address::generate(&env);
+    let pool_goal: u128 = 1_000_000_000;
+
+    // Set admin
+    client.set_admin(&admin);
+
+    let pool_id = client.create_pool(
+        &creator,
+        &String::from_str(&env, "Test Pool"),
+        &String::from_str(&env, "Claim fees test"),
+        &pool_goal,
+    );
+
+    // Donate to accumulate fees
+    let donation_amount = 100_000_000u128;
+    client.donate(&pool_id, &donor, &donation_amount);
+    let expected_fee = (donation_amount * 1) / 100;
+
+    // Verify fees are accumulated
+    let unclaimed_before = client.get_unclaimed_fees();
+    assert_eq!(unclaimed_before, expected_fee);
+
+    // Admin claims fees
+
+    // Use a mock token address and treasury address
+    let token_address = Address::generate(&env);
+    let treasury_address = Address::generate(&env);
+    let claimed_amount = client.claim_protocol_fees(&admin, &token_address, &treasury_address);
+    assert_eq!(claimed_amount, expected_fee);
+
+    // Verify unclaimed fees are reset to 0
+    let unclaimed_after = client.get_unclaimed_fees();
+    assert_eq!(unclaimed_after, 0);
+}
+
+/// Test that multiple fee accumulations and claims work correctly.
+#[test]
+fn test_multiple_fee_cycles() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(Contract, ());
+    let client = ContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let creator = Address::generate(&env);
+    let donor1 = Address::generate(&env);
+    let donor2 = Address::generate(&env);
+    let donor3 = Address::generate(&env);
+    let pool_goal: u128 = 10_000_000_000;
+
+    client.set_admin(&admin);
+
+    let pool_id = client.create_pool(
+        &creator,
+        &String::from_str(&env, "Cycle Test Pool"),
+        &String::from_str(&env, "Multiple cycles"),
+        &pool_goal,
+    );
+
+    // Cycle 1: Two donations
+    let donation1 = 100_000_000u128;
+    let donation2 = 200_000_000u128;
+    client.donate(&pool_id, &donor1, &donation1);
+    client.donate(&pool_id, &donor2, &donation2);
+
+    let fee1_cycle1 = (donation1 * 1) / 100;
+    let fee2_cycle1 = (donation2 * 1) / 100;
+    let total_cycle1 = fee1_cycle1 + fee2_cycle1;
+
+    let unclaimed_after_cycle1 = client.get_unclaimed_fees();
+    assert_eq!(unclaimed_after_cycle1, total_cycle1);
+
+    // Admin claims fees from cycle 1
+    let token_address = Address::generate(&env);
+    let treasury_address = Address::generate(&env);
+    let claimed_cycle1 = client.claim_protocol_fees(&admin, &token_address, &treasury_address);
+    assert_eq!(claimed_cycle1, total_cycle1);
+
+    let unclaimed_after_claim1 = client.get_unclaimed_fees();
+    assert_eq!(unclaimed_after_claim1, 0);
+
+    // Cycle 2: One more donation
+    let donation3 = 500_000_000u128;
+    client.donate(&pool_id, &donor3, &donation3);
+
+    let fee3_cycle2 = (donation3 * 1) / 100;
+    let unclaimed_after_cycle2 = client.get_unclaimed_fees();
+    assert_eq!(unclaimed_after_cycle2, fee3_cycle2);
+
+    // Admin claims fees from cycle 2
+    let claimed_cycle2 = client.claim_protocol_fees(&admin, &token_address, &treasury_address);
+    assert_eq!(claimed_cycle2, fee3_cycle2);
+
+    let unclaimed_final = client.get_unclaimed_fees();
+    assert_eq!(unclaimed_final, 0);
+}
+
+/// Test that only the protocol admin can claim fees.
+#[test]
+#[should_panic(expected = "Unauthorized: only protocol admin can claim fees")]
+fn test_non_admin_cannot_claim_fees() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(Contract, ());
+    let client = ContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let non_admin = Address::generate(&env);
+    let creator = Address::generate(&env);
+    let donor = Address::generate(&env);
+    let pool_goal: u128 = 1_000_000_000;
+
+    // Set admin
+    client.set_admin(&admin);
+
+    let pool_id = client.create_pool(
+        &creator,
+        &String::from_str(&env, "Test Pool"),
+        &String::from_str(&env, "Unauthorized claim test"),
+        &pool_goal,
+    );
+
+    // Donate to accumulate fees
+    client.donate(&pool_id, &donor, &100_000_000);
+
+    // Non-admin tries to claim fees - should panic
+    let token_address = Address::generate(&env);
+    let treasury_address = Address::generate(&env);
+    client.claim_protocol_fees(&non_admin, &token_address, &treasury_address);
+}
+
+/// Test that claiming fees when no admin is set panics.
+#[test]
+#[should_panic(expected = "Admin not set")]
+fn test_claim_fees_no_admin_set() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(Contract, ());
+    let client = ContractClient::new(&env, &contract_id);
+
+    let non_admin = Address::generate(&env);
+
+    // Try to claim fees without setting admin - should panic "Admin not set"
+    let token_address = Address::generate(&env);
+    let treasury_address = Address::generate(&env);
+    client.claim_protocol_fees(&non_admin, &token_address, &treasury_address);
+}
+
+/// Test that fee tracking is separate from pool allocations.
+/// Fees should not affect the pool's goal or collected amounts in accounting.
+#[test]
+fn test_fee_separation_from_pool_allocations() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(Contract, ());
+    let client = ContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let creator = Address::generate(&env);
+    let donor = Address::generate(&env);
+    let student = Address::generate(&env);
+    let school = Address::generate(&env);
+    let pool_goal: u128 = 1_000_000_000;
+
+    client.set_admin(&admin);
+    client.register_school(&admin, &school);
+
+    let pool_id = client.create_pool_for_school(
+        &creator,
+        &String::from_str(&env, "School Pool"),
+        &String::from_str(&env, "Separation test"),
+        &pool_goal,
+        &school,
+    );
+
+    // Donate 500_000_000
+    let donation_amount = 500_000_000u128;
+    let expected_fee = (donation_amount * 1) / 100;
+    let expected_net = donation_amount - expected_fee;
+
+    client.donate(&pool_id, &donor, &donation_amount);
+
+    // Student applies and gets approved
+    let credential_hash = BytesN::from_array(&env, &[1u8; 32]);
+    client.apply_to_pool(&student, &pool_id, &credential_hash, &100_000_000i128);
+    client.approve_application(&pool_id, &school, &student, &true);
+
+    // Verify pool state
+    let pool = client.get_pool(&pool_id);
+    assert_eq!(pool.2, pool_goal); // Goal unchanged
+    assert_eq!(pool.3, expected_net); // Collected is net of fees
+
+    // Verify fees are tracked separately
+    let unclaimed_fees = client.get_unclaimed_fees();
+    assert_eq!(unclaimed_fees, expected_fee);
+
+    // Student can claim from the net collected amount (not from fees)
+    let token_address = Address::generate(&env);
+    client.claim_funds(&student, &pool_id, &100_000_000i128, &token_address);
+
+    let claimed = client.get_claimed_amount(&pool_id, &student);
+    assert_eq!(claimed, 100_000_000i128);
+
+    // Fees remain separate and unaffected
+    let unclaimed_fees_after = client.get_unclaimed_fees();
+    assert_eq!(unclaimed_fees_after, expected_fee);
+    }
